@@ -13,6 +13,9 @@ Node::Node(Symbol type)
 Node::Node(std::string val)
     : type(terminal), children(), token(Token("", val, -1, -1)) {}
 
+Node::Node(Symbol type, std::optional<Token> tok)
+    : type(type), children(), token(tok) {}
+
 std::ostream& operator<<(std::ostream& os, const Node& node) {
     os << "Node(Type=" << (node.type) << ", Children=[";
     for (size_t i = 0; i < node.children.size(); ++i) {

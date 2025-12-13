@@ -10,7 +10,9 @@
 #define SYMBOL_LIST \
     X(terminal) \
     X(id) \
-    X(literal) /* distinction into different literals may be needed. Or not. Who knows? */ \
+    X(stringliteral) /* distinction into different literals may be needed. Or not. Who knows? */ \
+    X(charconst) \
+    X(decimalconst) \
     X(start) \
     X(transunit) \
     X(transunit_) \
@@ -49,6 +51,25 @@
     X(iterstatement) \
     X(jumpstatement) \
     X(expr) \
+    X(arrayaccess) \
+    X(functioncall) \
+    X(memberaccess) \
+    X(pointermemberaccess) \
+    X(reference) \
+    X(dereference) \
+    X(negationarithmetic) \
+    X(negationlogical) \
+    X(sizeoperator) \
+    X(product) \
+    X(sum) \
+    X(difference) \
+    X(comparison) /*Trying to name all of these akin to product and sum makes for some weird names, but it's worth it*/ \
+    X(equality) \
+    X(inequality) \
+    X(conjunction) \
+    X(disjunction) \
+    X(ternary) \
+    X(assignment) \
 
 
 

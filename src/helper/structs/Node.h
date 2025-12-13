@@ -15,6 +15,7 @@ class Node {
 public:
     Node(Symbol type, std::vector<Node> children, std::optional<Token> tok);
     Node(Symbol type);
+    Node(Symbol type, std::optional<Token> tok);
     Node(std::string val);
 
     Symbol getType() const { return type; }

@@ -20,6 +20,9 @@ public:
     std::vector<Node> getRemSymbols() const {return remSymbols;}
     std::vector<Node> getParseTree() const { return parseTree;}
 
+    std::optional<Node> parseExpression(std::string limit);
+    std::optional<Node> evilShuntingYard(std::string limit);
+
 private:
     std::vector<Token> remTokens;
     std::vector<Node> remSymbols;

@@ -1,4 +1,5 @@
 #include "Parser.h"
+#include <cmath>
 #include <iostream>
 #include <ostream>
 #include <vector>
@@ -131,10 +132,14 @@ int Parser::parse() {
         return 1;
     }
 }
+Node parseExpression(std::string);
 std::optional<Node> Parser::parseSymbol() {
     Node symbol = remSymbols.back();
     Token next = peek(0); //Slightly easier access to next token for LL(1) purposes.
     switch(symbol.getType()) {
+        case expr:
+            assert(peekSymbol(1).getToken().has_value()); //every expression (that isn't inside an expression) is follwed by ')' or ;
+            return parseExpression(peekSymbol(1).getToken()->getValue());
         case terminal:
             assert(symbol.getToken()); //A terminal symbol (node object) needs to contain a token.
             if(symbol.getToken()->getValue()==next.getValue()) {
@@ -144,7 +149,8 @@ std::optional<Node> Parser::parseSymbol() {
             } else {
                 return std::nullopt;
             }
-        case literal:
+        case stringliteral: //I guess this code is a bit whacky now that I distinguished literal into the different options, but we this should never run anyways I think
+            assert(!"I don't think this code is accesible, tell me if it is please"); //let's make sure this assumption is correct
             if(next.getTokenType()=="string-literal") {
                 symbol.setToken(next);
                 remTokens.pop_back();
@@ -502,4 +508,189 @@ std::optional<Node> Parser::parseSymbol() {
     }
     std::cout << "Unhandled case found: " << symbol.getType();
     return std::nullopt;
+}
+
+//and it's time to deal with expressions
+
+int opPrec(Symbol symbol) {
+    switch(symbol) {
+        case arrayaccess:
+        case functioncall:
+        case memberaccess:
+        case pointermemberaccess:
+        return 9;
+
+        case reference:
+        case dereference:
+        case negationarithmetic:
+        case negationlogical:
+        case sizeoperator:
+        return 8;
+
+        case product:
+        return 7;
+
+        case sum:
+        case difference:
+        return 6;
+
+        case comparison:
+        return 5;
+
+        case equality:
+        case inequality:
+        return 4;
+
+        case conjunction:
+        return 3;
+
+        case disjunction:
+        return 2;
+
+        case ternary:
+        return 1;
+
+        case assignment:
+        return 0;
+
+        default:
+        assert(!"nothing else has operator precedence so this shouldn't be reachable");
+        return -1;
+    }
+}
+
+bool isRightAssociative(Symbol symbol) {
+    switch(symbol) {
+        case reference: case dereference: case negationarithmetic: case negationlogical: case sizeoperator: case ternary: case assignment: return true;
+        default: return false;
+    }
+}
+
+std::optional<Symbol> toSymbol(std::string str, bool isExpectArg) {
+    if (str == "[") {
+        return isExpectArg ? std::nullopt : std::make_optional(arrayaccess);
+    }
+    else if (str == "(") {
+        return isExpectArg ? std::nullopt : std::make_optional(functioncall);
+    }
+    else if (str == ".") {
+        return isExpectArg ? std::nullopt : std::make_optional(memberaccess);
+    }
+    else if (str == "->") {
+        return isExpectArg ? std::nullopt : std::make_optional(pointermemberaccess);
+    }
+    else if (str == "&") {
+        return isExpectArg ? std::make_optional(reference): std::nullopt;
+    }
+    else if (str == "*") {
+        return isExpectArg ? std::make_optional(dereference) : std::make_optional(product);
+    }
+    else if (str == "-") {
+        return isExpectArg ? std::make_optional(negationarithmetic) : std::make_optional(difference);
+    }
+    else if (str == "!") {
+        return isExpectArg ? std::make_optional(negationlogical) : std::nullopt;
+    }
+    else if (str == "sizeof") {
+        return isExpectArg ? std::make_optional(sizeoperator) : std::nullopt;
+    }
+    else if (str == "+") {
+        return isExpectArg ? std::nullopt : std::make_optional(sum);
+    }
+    else if (str == "<") {
+        return isExpectArg ? std::nullopt : std::make_optional(comparison);
+    }
+    else if (str == "==") {
+        return isExpectArg ? std::nullopt : std::make_optional(equality);
+    }
+    else if (str == "!=") {
+        return isExpectArg ? std::nullopt : std::make_optional(inequality);
+    }
+    else if (str == "&&") {
+        return isExpectArg ? std::nullopt : std::make_optional(conjunction);
+    }
+    else if (str == "||") {
+        return isExpectArg ? std::nullopt : std::make_optional(disjunction);
+    }
+    else if (str == "?") {
+        return isExpectArg ? std::nullopt : std::make_optional(ternary);
+    }
+    else if (str == "=") {
+        return isExpectArg ? std::nullopt : std::make_optional(assignment);
+    }
+
+    return std::nullopt;
+}
+
+
+std::optional<Node> Parser::parseExpression(std::string limit) {
+    return evilShuntingYard(limit);
+}
+
+std::optional<Node> Parser::evilShuntingYard(std::string limit) {
+    std::vector<Symbol> opStack = std::vector<Symbol>();
+    std::vector<Node> argStack = std::vector<Node>();
+    bool isExpectArg = true;
+
+    while(true) {
+        Token tok = peek(0);
+        if(tok.getValue() == "EOF" || tok.getValue() == limit) {
+            break;
+        }
+        remTokens.pop_back();
+
+        if (tok.getTokenType() == "string-literal") {
+            if (!isExpectArg) return std::nullopt;
+            argStack.push_back(Node(stringliteral, tok));
+            isExpectArg = false;
+            continue;
+        } else if (tok.getTokenType() == "character-constant") {
+            if (!isExpectArg) return std::nullopt;
+            argStack.push_back(Node(charconst, tok));
+            isExpectArg = false;
+            continue;
+        } else if (tok.getTokenType() == "decimal-constant") {
+            if (!isExpectArg) return std::nullopt;
+            argStack.push_back(Node(decimalconst, tok));
+            isExpectArg = false;
+            continue;
+        } else if (tok.getTokenType() == "identifier") {
+            if (!isExpectArg) return std::nullopt;
+            argStack.push_back(Node(id, tok));
+            isExpectArg = false;
+            continue;
+        }
+
+        if(tok.getValue() == "(" && isExpectArg) {
+            std::optional<Node> res = evilShuntingYard(")");
+            if(!res.has_value()) {
+                return std::nullopt;
+            }
+            if(remTokens.back().getValue() == ")") {
+                remTokens.pop_back();
+            argStack.push_back(res.value());
+            isExpectArg = false;
+            continue;
+            } else {
+                std::cout << "missing closing )";
+                return std::nullopt;
+            }
+
+        }
+        std::optional<Symbol> maybeOperator = toSymbol(tok.getValue(), isExpectArg);
+        if(!maybeOperator.has_value()) {
+            return std::nullopt;
+        }
+        Symbol op = maybeOperator.value();
+        if(op == arrayaccess) {
+
+        }
+        if(op == functioncall) {
+
+        }
+        if(op == ternary) {
+
+        }
+        //standard operator & standard behaviour
+    }
 }
