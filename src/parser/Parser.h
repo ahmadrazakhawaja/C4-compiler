@@ -20,8 +20,8 @@ public:
     std::vector<Node> getRemSymbols() const {return remSymbols;}
     std::vector<Node> getParseTree() const { return parseTree;}
 
-    std::optional<Node> parseExpression(std::string limit);
-    std::optional<Node> evilShuntingYard(std::string limit);
+    std::optional<Node> evilShuntingYard(std::string limit, std::string limit2, bool isOutermost);
+    std::optional<Node> evilShuntingYard(std::string limit, bool isOutermost);
 
 private:
     std::vector<Token> remTokens;

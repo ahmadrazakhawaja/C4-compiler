@@ -56,7 +56,7 @@ Node Parser::peekSymbol(int k) { //This isn't a standard thing of ll(k) parsers,
 }
 Token Parser::peek(int k) {
     if(isVerbose)
-        std::cout << "Peeked at " << remTokens.at(remTokens.size()-k-1) << "using k=" << k << '\n'; //TODO remove
+        std::cout << "\t\tPeeked at " << remTokens.at(remTokens.size()-k-1) << "using k=" << k << '\n'; //TODO remove
     return remTokens.at(remTokens.size()-k-1);
 }
 
@@ -103,6 +103,20 @@ void Parser::dump_state() {
 
 int Parser::parse() {
     while(!remSymbols.empty() && !remTokens.empty()) {
+        //expression handling
+        if(remSymbols.back().getType() == expr) {
+            assert(peekSymbol(1).getToken().has_value()); //every expression (that isn't inside an expression) is follwed by ')' or ;
+            std::optional<Node> res = evilShuntingYard(peekSymbol(1).getToken()->getValue(), true);
+            if(!res.has_value()) {
+                std::cout << "Expression Parsing Error at Token " << remTokens.back() << '\n';
+                dump_state();
+                return 1;
+            }
+            remSymbols.pop_back();
+            parseTree.push_back(res.value());
+            std::cout << "Expression parsed successfully" << '\n';
+            continue;
+        }
         std::optional<Node> changedNode = parseSymbol();
         if(!changedNode.has_value()) {
             std::cout << "Parsing Error at Token " << remTokens.back() << '\n';
@@ -132,14 +146,14 @@ int Parser::parse() {
         return 1;
     }
 }
-Node parseExpression(std::string);
 std::optional<Node> Parser::parseSymbol() {
     Node symbol = remSymbols.back();
     Token next = peek(0); //Slightly easier access to next token for LL(1) purposes.
     switch(symbol.getType()) {
         case expr:
-            assert(peekSymbol(1).getToken().has_value()); //every expression (that isn't inside an expression) is follwed by ')' or ;
-            return parseExpression(peekSymbol(1).getToken()->getValue());
+            //Shouldn't occur.
+            assert(!"This code should be inaccessible tell me if it is please");
+            abort();
         case terminal:
             assert(symbol.getToken()); //A terminal symbol (node object) needs to contain a token.
             if(symbol.getToken()->getValue()==next.getValue()) {
@@ -433,6 +447,9 @@ std::optional<Node> Parser::parseSymbol() {
             } else if(next.getValue() == "goto" || next.getValue() == "continue" || next.getValue() == "break" || next.getValue() == "return") {
                 symbol.addChild(jumpstatement);
                 return symbol;
+            } else if(next.getValue() == "{") {
+                symbol.addChild(compoundstatement);
+                return symbol;
             } else {
                 symbol.addChild(exprstatement); // :(
                 return symbol;
@@ -514,6 +531,9 @@ std::optional<Node> Parser::parseSymbol() {
 
 int opPrec(Symbol symbol) {
     switch(symbol) {
+        //case parenthesizedexpr:
+        //return 10;
+
         case arrayaccess:
         case functioncall:
         case memberaccess:
@@ -565,13 +585,14 @@ bool isRightAssociative(Symbol symbol) {
         default: return false;
     }
 }
-
+int reduce(std::vector<Symbol>& opStack, std::vector<Node>& argStack);
 std::optional<Symbol> toSymbol(std::string str, bool isExpectArg) {
+    std::cout << "Called to Symbol with str=" << str << " and isExpectArg=" << isExpectArg << "\n";
     if (str == "[") {
         return isExpectArg ? std::nullopt : std::make_optional(arrayaccess);
     }
     else if (str == "(") {
-        return isExpectArg ? std::nullopt : std::make_optional(functioncall);
+        return isExpectArg ? std::make_optional(parenthesizedexpr) : std::make_optional(functioncall);
     }
     else if (str == ".") {
         return isExpectArg ? std::nullopt : std::make_optional(memberaccess);
@@ -622,75 +643,204 @@ std::optional<Symbol> toSymbol(std::string str, bool isExpectArg) {
     return std::nullopt;
 }
 
-
-std::optional<Node> Parser::parseExpression(std::string limit) {
-    return evilShuntingYard(limit);
+std::optional<Node> Parser::evilShuntingYard(std::string limit, bool isOutermost) { //The double/single limit construction exists for function calls
+    return evilShuntingYard(limit, limit, isOutermost);
 }
-
-std::optional<Node> Parser::evilShuntingYard(std::string limit) {
+std::optional<Node> Parser::evilShuntingYard(std::string limit, std::string limit2, bool isOutermost) { //Shunting Yard but with more than just binary operators of varying precedences, hence evil Shunting Yard
+    std::cout << "evilShuntingYard called" << "\n"; //TODO COMMENT OUT
     std::vector<Symbol> opStack = std::vector<Symbol>();
     std::vector<Node> argStack = std::vector<Node>();
     bool isExpectArg = true;
 
     while(true) {
+        std::cout << "\topStack: " << '\n';
+        for(Symbol symbol : opStack) {
+            std::cout << "\t\t" << symbol << '\n'; //TODO COMMENT OUT
+        }
+        std::cout << "\targStack: \n";
+        for(Node node : argStack) {
+            std::cout << "\t\t";
+            print(node); //TODO COMMENT OUT
+            std::cout << '\n';
+        }
+        //std::cout << "loop token eating" << "\n"; //TODO COMMENT OUT
         Token tok = peek(0);
-        if(tok.getValue() == "EOF" || tok.getValue() == limit) {
+        std::cout << "\texpr-token: " << tok << "\n";
+        if(tok.getValue() == limit || tok.getValue() == limit2) {
+            if(!isOutermost) { //The general parsing function wants the ; of "return expr;" to remain. Shunting Yard does not want that. Basically an off-by-one-error in spirit
+                remTokens.pop_back();
+            }
             break;
         }
-        remTokens.pop_back();
+        if(tok.getValue() == "EOF") {
+            return std::nullopt;
+        }
+        
 
         if (tok.getTokenType() == "string-literal") {
             if (!isExpectArg) return std::nullopt;
+            remTokens.pop_back();
             argStack.push_back(Node(stringliteral, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "character-constant") {
             if (!isExpectArg) return std::nullopt;
+            remTokens.pop_back();
             argStack.push_back(Node(charconst, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "decimal-constant") {
             if (!isExpectArg) return std::nullopt;
+            remTokens.pop_back();
             argStack.push_back(Node(decimalconst, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "identifier") {
             if (!isExpectArg) return std::nullopt;
+            remTokens.pop_back();
             argStack.push_back(Node(id, tok));
             isExpectArg = false;
             continue;
         }
 
-        if(tok.getValue() == "(" && isExpectArg) {
-            std::optional<Node> res = evilShuntingYard(")");
+        std::optional<Symbol> maybeOperator = toSymbol(tok.getValue(), isExpectArg);
+        if(!maybeOperator.has_value()) {
+            std::cout << "no operator" << "\n";
+            return std::nullopt;
+        }
+        remTokens.pop_back(); //We delay it so that it is confirmed this token is good and useful before we delete it. Leads to better error messages ont he problematic token not after
+        Symbol op = maybeOperator.value();
+        if(op==functioncall || op==arrayaccess || op==parenthesizedexpr) {
+            isExpectArg = false;
+        } else {
+            isExpectArg = true;
+        }
+        std::cout << op << " and isExpectArg=" << isExpectArg << "\n";
+
+        //special handling for sizeof(type wait fuck you can put any type here including structs. I'm fucked)
+
+        while(op!= parenthesizedexpr && !opStack.empty() && (opPrec(op) < opPrec(opStack.back()) || !isRightAssociative(op) && opPrec(op) == opPrec(opStack.back()))) { //I am deeply familiar with op precedence of && & || now, so I will not place parenthesis
+            std::cout << "loop opPrec reducing" << "\n"; //TODO COMMENT OUT
+            if(reduce(opStack, argStack)) {
+                return std::nullopt;
+            }
+        }
+
+        if(op == parenthesizedexpr) {
+            std::optional<Node> res = evilShuntingYard(")", false);
             if(!res.has_value()) {
                 return std::nullopt;
             }
-            if(remTokens.back().getValue() == ")") {
-                remTokens.pop_back();
-            argStack.push_back(res.value());
-            isExpectArg = false;
+            Node node = Node(op);
+            node.addChild(res.value());
+            argStack.push_back(node);
             continue;
-            } else {
-                std::cout << "missing closing )";
+        }
+        if(op == arrayaccess) {
+            std::optional<Node> res = evilShuntingYard("]", false);
+            if(!res.has_value()) {
                 return std::nullopt;
             }
-
-        }
-        std::optional<Symbol> maybeOperator = toSymbol(tok.getValue(), isExpectArg);
-        if(!maybeOperator.has_value()) {
-            return std::nullopt;
-        }
-        Symbol op = maybeOperator.value();
-        if(op == arrayaccess) {
-
+            argStack.push_back(res.value());
+            opStack.push_back(op);
+            continue;
         }
         if(op == functioncall) {
-
+            std::cout << "functioncall handling entered\n";
+            if(peek(0).getValue() == ")") {
+                remTokens.pop_back();
+                Node node = Node(op);
+                node.addChild(argStack.back()); //This is the function name
+                argStack.push_back(node);
+                continue;
+            }
+            int args = 0; //The argument for the function itself is accounted for by letting the loop go to <= args.
+            while(true) {
+                args++;
+                std::optional<Node> res = evilShuntingYard(")", ",", true); //is Outermost true so we can distinguish between , and )
+                if(!res.has_value()) {
+                    return std::nullopt;
+                }
+                if(peek(0).getValue() == ")") {
+                    remTokens.pop_back();
+                    argStack.push_back(res.value());
+                    break;
+                } else if(peek(0).getValue() == ",") {
+                    remTokens.pop_back();
+                    argStack.push_back(res.value());
+                    continue; //continue innerloop, i.e. look for another functioncall argument
+                } else {
+                    std::cout << "Shouldn't be accessible" << "\n";
+                    std::abort();
+                }
+            }
+            Node node = Node(op);
+            int totalArgStackSize = argStack.size();
+            std::cout << "args=" << args << " argStackSize=" << totalArgStackSize << "\n";
+            for(int i = 0; i <= args; i++) { //0 AND <=args is for called function name
+                node.addChild(argStack.at(totalArgStackSize-1-args+i));
+            }
+            for(int i = 0; i <= args; i++) {
+                argStack.pop_back();
+            }
+            argStack.push_back(node);
+            std::cout << "functioncall handling left\n";
+            continue; //continue outer loop, i.e. shunting yard next token
         }
-        if(op == ternary) {
-
+        if(op == ternary) { //I think this works, but I'm not entirely sure.
+            std::optional<Node> res = evilShuntingYard(":", false);
+            if(!res.has_value()) {
+                return std::nullopt;
+            }
+            argStack.push_back(res.value());
+            opStack.push_back(op);
+            continue;
         }
-        //standard operator & standard behaviour
+
+        opStack.push_back(op); //only reason I have to add this so many times is bc parenthesized expression doesn't add an op. Could have just made it one with the highest precedence that would have worked too.
+        //oh, and functioncalls now that I remembered that they can have multiple arguments
+    }
+    while(!opStack.empty()) {
+        std::cout << "loop final reducing" << "\n"; //TODO COMMENT OUT
+        if(reduce(opStack, argStack)) return std::nullopt;
+    }
+    if(opStack.empty() && argStack.size() == 1) {
+        return argStack.back();
+    } else {
+        return std::nullopt;
+    }
+}
+
+int reduce(std::vector<Symbol>& opStack, std::vector<Node>& argStack) {
+    std::cout << "reduce called" << "\n"; //TODO COMMENT OUT
+    if(opStack.empty()) {
+        return 1;
+    }
+    int argStackSize = argStack.size();
+    Symbol op = opStack.back();
+    Node node = Node(op);
+    opStack.pop_back();
+    switch(op) {
+        case ternary:
+            if(argStackSize < 3) return 1;
+            node.addChild(argStack.at(argStackSize-3));
+            node.addChild(argStack.at(argStackSize-2));
+            node.addChild(argStack.at(argStackSize-1));
+            argStack.pop_back(); argStack.pop_back(); argStack.pop_back();
+            argStack.push_back(node);
+            return 0;
+        case reference: case dereference: case negationarithmetic: case negationlogical: case sizeoperator:
+            if(argStackSize < 1) return 1;
+            node.addChild(argStack.at(argStackSize-1));
+            argStack.pop_back();
+            argStack.push_back(node);
+            return 0;
+        default: //we've thrown an error by now due to checking opPrec if this isn't a valid operator no need to check, just use default
+            if(argStackSize < 2) return 1;
+            node.addChild(argStack.at(argStackSize-2));
+            node.addChild(argStack.at(argStackSize-1));
+            argStack.pop_back(); argStack.pop_back();
+            argStack.push_back(node);
+            return 0;
     }
 }
