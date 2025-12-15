@@ -37,18 +37,18 @@ void print(Node node) {
 }
 
 // Constructors
-Parser::Parser(std::vector<Token> tokens, bool verbose) {
+Parser::Parser(std::vector<Token> tokens, bool verbose)
+    :parseTreeRoot(start)
+{
     while (!tokens.empty()) { //This switches the order s.t. the token accessible by back is the first token that needs parsing
         remTokens.push_back(tokens.back());
         tokens.pop_back();
     }
-    remSymbols.push_back(Symbol::start);
+    remSymbols.push_back(parseTreeRoot);
     isVerbose=verbose;
 }
 
-Parser::Parser() : remSymbols(), parseTree() {
-    isVerbose=false;
-}
+
 
 // Lookahead k
 Node Parser::peekSymbol(int k) { //This isn't a standard thing of ll(k) parsers, i hope i don't need to use it.
@@ -106,15 +106,22 @@ int Parser::parse() {
         //expression handling
         if(remSymbols.back().getType() == expr) {
             assert(peekSymbol(1).getToken().has_value()); //every expression (that isn't inside an expression) is follwed by ')' or ;
-            std::optional<Node> res = evilShuntingYard(peekSymbol(1).getToken()->getValue(), true);
+            remSymbols.pop_back(); //get ride of the expr token now!
+            remTokensExpressionIndex = 0;
+            remRevExprSymbols = std::vector<Node>();
+            std::optional<Node> res = evilShuntingYard(peekSymbol(0).getToken()->getValue(), true);
+            while(!remRevExprSymbols.empty()) {
+                remSymbols.push_back(remRevExprSymbols.back());
+                remRevExprSymbols.pop_back();
+            }
+
             if(!res.has_value()) {
                 std::cout << "Expression Parsing Error at Token " << remTokens.back() << '\n';
                 dump_state();
                 return 1;
             }
-            remSymbols.pop_back();
-            parseTree.push_back(res.value());
-            std::cout << "Expression parsed successfully" << '\n';
+            if(isVerbose)
+                std::cout << "Expression parsed successfully" << '\n';
             continue;
         }
         std::optional<Node> changedNode = parseSymbol();
@@ -128,7 +135,6 @@ int Parser::parse() {
             print(changedNode.value());
             std::cout << '\n'; //this should always show the production used.
         }
-        parseTree.push_back(changedNode.value());
         remSymbols.pop_back();
         for(int i = changedNode->getChildren().size()-1; i>=0; i--) {
             remSymbols.push_back(changedNode->getChildren().at(i));
@@ -164,17 +170,22 @@ std::optional<Node> Parser::parseSymbol() {
                 return std::nullopt;
             }
         case stringliteral: //I guess this code is a bit whacky now that I distinguished literal into the different options, but we this should never run anyways I think
-            assert(!"I don't think this code is accesible, tell me if it is please"); //let's make sure this assumption is correct
+            //assert(!"I don't think this code is accesible, tell me if it is please"); //let's make sure this assumption is correct
+            //We do run it now.
             if(next.getTokenType()=="string-literal") {
                 symbol.setToken(next);
                 remTokens.pop_back();
                 return symbol;
             }
+            return std::nullopt;
+        case charconst:
             if(next.getTokenType()=="character-constant") {
                 symbol.setToken(next);
                 remTokens.pop_back();
                 return symbol;
             }
+            return std::nullopt;
+        case decimalconst:
             if(next.getTokenType()=="decimal-constant") {
                 symbol.setToken(next);
                 remTokens.pop_back();
@@ -587,7 +598,7 @@ bool isRightAssociative(Symbol symbol) {
 }
 int reduce(std::vector<Symbol>& opStack, std::vector<Node>& argStack);
 std::optional<Symbol> toSymbol(std::string str, bool isExpectArg) {
-    std::cout << "Called to Symbol with str=" << str << " and isExpectArg=" << isExpectArg << "\n";
+    std::cout << "Called toSymbol with str=" << str << " and isExpectArg=" << isExpectArg << "\n";
     if (str == "[") {
         return isExpectArg ? std::nullopt : std::make_optional(arrayaccess);
     }
@@ -643,6 +654,13 @@ std::optional<Symbol> toSymbol(std::string str, bool isExpectArg) {
     return std::nullopt;
 }
 
+Token Parser::peekExpr(int k) {
+    if(isVerbose)
+        std::cout << "\t\t\tExprPeeked at " << remTokens.at(remTokens.size()-k-1-remTokensExpressionIndex) << "using k=" << k << " & remTokensExpressionIndex="
+            << remTokensExpressionIndex << '\n'; //TODO remove
+    return remTokens.at(remTokens.size()-k-1-remTokensExpressionIndex);
+}
+
 std::optional<Node> Parser::evilShuntingYard(std::string limit, bool isOutermost) { //The double/single limit construction exists for function calls
     return evilShuntingYard(limit, limit, isOutermost);
 }
@@ -664,11 +682,14 @@ std::optional<Node> Parser::evilShuntingYard(std::string limit, std::string limi
             std::cout << '\n';
         }
         //std::cout << "loop token eating" << "\n"; //TODO COMMENT OUT
-        Token tok = peek(0);
+        Token tok = peekExpr(0);
         std::cout << "\texpr-token: " << tok << "\n";
+        std::cout << "limit=" << limit << " limit2=" << limit2 << " exprToken=" << tok << "\n";
         if(tok.getValue() == limit || tok.getValue() == limit2) {
+            std::cout << "limit reached" << "\n";
             if(!isOutermost) { //The general parsing function wants the ; of "return expr;" to remain. Shunting Yard does not want that. Basically an off-by-one-error in spirit
-                remTokens.pop_back();
+                remTokensExpressionIndex++;
+                remRevExprSymbols.push_back(tok.getValue());
             }
             break;
         }
@@ -679,28 +700,66 @@ std::optional<Node> Parser::evilShuntingYard(std::string limit, std::string limi
 
         if (tok.getTokenType() == "string-literal") {
             if (!isExpectArg) return std::nullopt;
-            remTokens.pop_back();
+            remTokensExpressionIndex++;
+            remRevExprSymbols.push_back(stringliteral);
             argStack.push_back(Node(stringliteral, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "character-constant") {
             if (!isExpectArg) return std::nullopt;
-            remTokens.pop_back();
+            remTokensExpressionIndex++;
+            remRevExprSymbols.push_back(charconst);
             argStack.push_back(Node(charconst, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "decimal-constant") {
             if (!isExpectArg) return std::nullopt;
-            remTokens.pop_back();
+            remTokensExpressionIndex++;
+            remRevExprSymbols.push_back(decimalconst);
             argStack.push_back(Node(decimalconst, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "identifier") {
             if (!isExpectArg) return std::nullopt;
-            remTokens.pop_back();
+            remTokensExpressionIndex++;
+            remRevExprSymbols.push_back(id);
             argStack.push_back(Node(id, tok));
             isExpectArg = false;
             continue;
+        } else if (tok.getValue() == "sizeof") {
+            if(peekExpr(1).getValue() == "(") {
+                if(peekExpr(2).getValue()=="void" || peekExpr(2).getValue()=="char" || peekExpr(2).getValue()=="int" || peekExpr(2).getValue()=="struct") {
+                    //consume sizeof(
+                    remTokensExpressionIndex++;
+                    remRevExprSymbols.push_back(std::string("sizeof"));
+                    remTokensExpressionIndex++;
+                    remRevExprSymbols.push_back(std::string("("));
+                    //dealing with the type
+                    Node typeSymbolNode = Node(type);
+                    remRevExprSymbols.push_back(typeSymbolNode);
+                    Node sizeOperatorNode = Node(sizeoperator);
+                    sizeOperatorNode.addChild(typeSymbolNode);
+                    argStack.push_back(sizeOperatorNode);
+                    isExpectArg = true; //!!!
+                    //find matching parenthesis for sizeof(...) <- this one
+                    int openParenthesis = 1;
+                    while(openParenthesis > 0) {
+                        remTokensExpressionIndex++;
+                        Token tok = peekExpr(0);
+                        if(tok.getValue() == "(") {
+                            openParenthesis++;
+                        } else if(tok.getValue() == ")") {
+                            openParenthesis--;
+                        } else if(tok.getValue() == "EOF") {
+                            return std::nullopt;
+                        }
+                    }
+                    //closing parenthesis
+                    remTokensExpressionIndex++;
+                    remRevExprSymbols.push_back(std::string(")"));
+                    continue;
+                }
+            }
         }
 
         std::optional<Symbol> maybeOperator = toSymbol(tok.getValue(), isExpectArg);
@@ -708,7 +767,8 @@ std::optional<Node> Parser::evilShuntingYard(std::string limit, std::string limi
             std::cout << "no operator" << "\n";
             return std::nullopt;
         }
-        remTokens.pop_back(); //We delay it so that it is confirmed this token is good and useful before we delete it. Leads to better error messages ont he problematic token not after
+        remTokensExpressionIndex++; //We delay it so that it is confirmed this token is good and useful before we delete it (replaced by incrasing the index now). Leads to better error messages ont he problematic token not after
+        remRevExprSymbols.push_back(tok.getValue());
         Symbol op = maybeOperator.value();
         if(op==functioncall || op==arrayaccess || op==parenthesizedexpr) {
             isExpectArg = false;
@@ -747,8 +807,9 @@ std::optional<Node> Parser::evilShuntingYard(std::string limit, std::string limi
         }
         if(op == functioncall) {
             std::cout << "functioncall handling entered\n";
-            if(peek(0).getValue() == ")") {
-                remTokens.pop_back();
+            if(peekExpr(0).getValue() == ")") {
+                remTokensExpressionIndex++;
+                remRevExprSymbols.push_back(std::string(")"));
                 Node node = Node(op);
                 node.addChild(argStack.back()); //This is the function name
                 argStack.push_back(node);
@@ -761,12 +822,14 @@ std::optional<Node> Parser::evilShuntingYard(std::string limit, std::string limi
                 if(!res.has_value()) {
                     return std::nullopt;
                 }
-                if(peek(0).getValue() == ")") {
-                    remTokens.pop_back();
+                if(peekExpr(0).getValue() == ")") {
+                    remTokensExpressionIndex++;
+                    remRevExprSymbols.push_back(std::string(")"));
                     argStack.push_back(res.value());
                     break;
-                } else if(peek(0).getValue() == ",") {
-                    remTokens.pop_back();
+                } else if(peekExpr(0).getValue() == ",") {
+                    remTokensExpressionIndex++;
+                    remRevExprSymbols.push_back(std::string(","));
                     argStack.push_back(res.value());
                     continue; //continue innerloop, i.e. look for another functioncall argument
                 } else {
