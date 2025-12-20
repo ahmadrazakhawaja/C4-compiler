@@ -428,6 +428,8 @@ int Parser::parse() {
 
         // expression handling
         if (remSymbols.back()->getType() == expr) {
+            Node::Ptr exprNode = remSymbols.back();
+
             assert(peekSymbol(1)->getToken().has_value()); // follow token
             remSymbols.pop_back();
 
@@ -447,6 +449,8 @@ int Parser::parse() {
                 dump_state();
                 return 1;
             }
+
+            exprNode->addChild(res.value());
 
             if (isVerbose) std::cout << "Expression parsed successfully\n";
             continue;
