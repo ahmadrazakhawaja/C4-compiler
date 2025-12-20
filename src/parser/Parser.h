@@ -1,34 +1,41 @@
 #ifndef COMPILER_LAB_PARSER_H
 #define COMPILER_LAB_PARSER_H
+
 #include "../helper/structs/Token.h"
 #include "../helper/structs/Node.h"
+#include <optional>
 #include <vector>
+#include <string>
 
 class Parser {
 public:
-    Parser(std::vector<Token> tokens, bool isVerbose); //remaining symbols
+    Parser(std::vector<Token> tokens, bool isVerbose);
     static void run(const std::string& fileName, const std::string& path, bool isVerbose);
 
-    Node peekSymbol(int k);
+    Node::Ptr peekSymbol(int k);
     Token peek(int k);
     Token peekExpr(int k);
+
     void dump_state();
     int parse();
-    std::optional<Node> parseSymbol();
+    std::optional<Node::Ptr> parseSymbol();
 
-    std::vector<Token> getRemTokens() const { return remTokens;}
-    std::vector<Node> getRemSymbols() const {return remSymbols;}
-    Node getParseTreeRoot() const { return parseTreeRoot;}
+    const std::vector<Token>& getRemTokens() const { return remTokens; }
+    const std::vector<Node::Ptr>& getRemSymbols() const { return remSymbols; }
+    Node::Ptr getParseTreeRoot() const { return parseTreeRoot; }
 
-    std::optional<Node> evilShuntingYard(std::string limit, std::string limit2, bool isOutermost);
-    std::optional<Node> evilShuntingYard(std::string limit, bool isOutermost);
+    std::optional<Node::Ptr> evilShuntingYard(std::string limit, std::string limit2, bool isOutermost);
+    std::optional<Node::Ptr> evilShuntingYard(std::string limit, bool isOutermost);
 
 private:
     std::vector<Token> remTokens;
-    std::vector<Node> remSymbols;
-    int remTokensExpressionIndex;
-    std::vector<Node> remRevExprSymbols;
-    Node parseTreeRoot;
-    bool isVerbose;
+    std::vector<Node::Ptr> remSymbols;
+
+    int remTokensExpressionIndex = 0;
+    std::vector<Node::Ptr> remRevExprSymbols;
+
+    Node::Ptr parseTreeRoot;
+    bool isVerbose = false;
 };
-#endif //COMPILER_LAB_PARSER_H
+
+#endif

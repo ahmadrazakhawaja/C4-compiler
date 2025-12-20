@@ -1,36 +1,52 @@
+#pragma once
 
-#ifndef COMPILER_LAB_NODE_H
-#define COMPILER_LAB_NODE_H
-#include "./../Symbol.h"
+#include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 #include <ostream>
+
+#include "../Symbol.h"
 #include "Token.h"
-#include <optional>
 
 class Node {
+public:
+    using Ptr = std::shared_ptr<Node>;
+
+private:
     Symbol type;
-    std::vector<Node> children;
+    std::vector<Ptr> children;
     std::optional<Token> token;
 
 public:
-    Node(Symbol type, std::vector<Node> children, std::optional<Token> tok);
-    Node(Symbol type);
+    // Constructors
+    explicit Node(Symbol type);
+    Node(Symbol type, const Token& tok);
     Node(Symbol type, std::optional<Token> tok);
-    Node(std::string val);
+    explicit Node(const std::string& terminalValue); // makes a terminal node with that value
 
+    // Factory helpers (recommended)
+    static Ptr make(Symbol type);
+    static Ptr make(Symbol type, const Token& tok);
+    static Ptr make(Symbol type, std::optional<Token> tok);
+    static Ptr makeTerminal(const std::string& terminalValue);
+
+    // Getters / setters
     Symbol getType() const { return type; }
-    void setType(Symbol type) { this->type = type; }
-    std::vector<Node> getChildren() const { return children; }
-    void setChildren(const std::vector<Node> &children) { this->children = children; }
-    std::optional<Token> getToken() const { return token; }
-    void setToken(const Token &tok) { token = tok; }
+    void setType(Symbol t) { type = t; }
 
-    void addChild(Node child) {
-        children.push_back(child);
-    }
+    const std::vector<Ptr>& getChildren() const { return children; }
+    void setChildren(const std::vector<Ptr>& c) { children = c; }
 
+    const std::optional<Token>& getToken() const { return token; }
+    void setToken(const Token& t) { token = t; }
+    void setToken(std::optional<Token> t) { token = std::move(t); }
+
+    // Child helpers
+    void addChild(const Ptr& child);
+    void addChild(Symbol sym);                  // convenience: adds Node(sym)
+    void addChild(const std::string& terminal); // convenience: adds terminal node
+
+    // Debug printing (small, not recursive)
     friend std::ostream& operator<<(std::ostream& os, const Node& node);
 };
-
-
-#endif //COMPILER_LAB_NODE_H
