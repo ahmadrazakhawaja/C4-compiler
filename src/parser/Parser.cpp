@@ -84,7 +84,7 @@ void Parser::run(const std::string& fileName, const std::string& path, bool isVe
     if (!parser.parse()) {
         std::cout << "Successfully parsed " << fileName << "\n";
         prettyPrint::Options opt;
-        opt.unicodeBranches = true;
+        opt.unicodeBranches = false;
         opt.showTokenValue = true;
 
         std::cout << "\n=== Parse Tree ===\n";
