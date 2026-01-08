@@ -1,0 +1,150 @@
+#pragma once
+
+#include <memory>
+#include <optional>
+#include <string>
+#include <variant>
+#include <vector>
+#include <iosfwd>
+
+#include "../helper/structs/Node.h"
+
+namespace ast {
+
+struct TypeSpec;
+struct Declarator;
+struct AbstractDeclarator;
+struct ParamList;
+struct Decl;
+struct Statement;
+
+struct Expr {
+    Node::Ptr root;
+};
+
+struct StructType {
+    std::optional<std::string> name;
+    std::vector<Decl> fields;
+};
+
+struct TypeSpec {
+    enum class Kind { Builtin, Struct };
+    Kind kind = Kind::Builtin;
+    std::string builtin;
+    StructType structType;
+};
+
+struct ParamDecl {
+    TypeSpec type;
+    std::shared_ptr<Declarator> declarator;
+    std::shared_ptr<AbstractDeclarator> abstractDeclarator;
+};
+
+struct ParamList {
+    std::vector<ParamDecl> params;
+};
+
+struct DirectDeclarator {
+    enum class Kind { Identifier, Nested };
+    Kind kind = Kind::Identifier;
+    std::string identifier;
+    std::shared_ptr<Declarator> nested;
+    std::vector<ParamList> params;
+};
+
+struct Declarator {
+    int pointerDepth = 0;
+    DirectDeclarator direct;
+};
+
+struct DirectAbstractDeclarator {
+    enum class Kind { ParamList, Nested };
+    Kind kind = Kind::ParamList;
+    ParamList firstParamList;
+    std::shared_ptr<AbstractDeclarator> nested;
+    std::vector<ParamList> suffixes;
+};
+
+struct AbstractDeclarator {
+    int pointerDepth = 0;
+    bool hasDirect = false;
+    DirectAbstractDeclarator direct;
+};
+
+struct Decl {
+    TypeSpec type;
+    std::optional<Declarator> declarator;
+};
+
+struct StmtCompound {
+    std::vector<std::shared_ptr<Statement>> items;
+};
+
+struct StmtDecl {
+    Decl decl;
+};
+
+struct StmtExpr {
+    std::optional<Expr> expr;
+};
+
+struct StmtIf {
+    Expr condition;
+    std::shared_ptr<Statement> thenStmt;
+    std::shared_ptr<Statement> elseStmt;
+};
+
+struct StmtWhile {
+    Expr condition;
+    std::shared_ptr<Statement> body;
+};
+
+struct StmtLabel {
+    std::string label;
+    std::shared_ptr<Statement> stmt;
+};
+
+struct StmtGoto {
+    std::string label;
+};
+
+struct StmtContinue {};
+struct StmtBreak {};
+
+struct StmtReturn {
+    std::optional<Expr> expr;
+};
+
+struct Statement {
+    using Variant = std::variant<
+        StmtCompound,
+        StmtDecl,
+        StmtExpr,
+        StmtIf,
+        StmtWhile,
+        StmtLabel,
+        StmtGoto,
+        StmtContinue,
+        StmtBreak,
+        StmtReturn>;
+    Variant node;
+};
+
+struct FuncDef {
+    TypeSpec type;
+    Declarator declarator;
+    StmtCompound body;
+};
+
+struct ExternalDecl {
+    std::variant<Decl, FuncDef> node;
+};
+
+struct TranslationUnit {
+    std::vector<ExternalDecl> decls;
+};
+
+TranslationUnit buildFromParseTree(const Node::Ptr& root);
+void printAst(const TranslationUnit& tu, std::ostream& os);
+
+} // namespace ast

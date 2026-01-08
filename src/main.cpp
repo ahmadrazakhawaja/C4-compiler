@@ -4,6 +4,7 @@
 #include <iostream>
 #include "helper/Utils.h"
 #include "parser/Parser.h"
+#include "ast/Ast.h"
 
 int main(int argc, char** argv) {
     if (argc >= 3 && std::string(argv[1]) == "--tokenize") {
@@ -40,6 +41,29 @@ int main(int argc, char** argv) {
         std::string fullPath = "test/lexer/" + file;
 
         Parser::run(file, fullPath, true);
+        return 0;
+    }
+
+    if (argc >= 3 && std::string(argv[1]) == "--print-ast") {
+        std::string file = argv[2];
+        std::string fullPath = "test/lexer/" + file;
+
+        std::string sourceCode = Utils::readSourceCode(fullPath);
+        sourceCode += '\0';
+        auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
+
+        if (sequence.second.has_value()) {
+            int a = sequence.second->first;
+            int b = sequence.second->second;
+            std::cerr << "Lexer Error at line:" << a+1 << ":" << b+1 << std::endl;
+            return 1;
+        }
+
+        Parser parser(sequence.first, false);
+        if (parser.parse() != 0) return 1;
+
+        auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
+        ast::printAst(astTree, std::cout);
         return 0;
     }
 
