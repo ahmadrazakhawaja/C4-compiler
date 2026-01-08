@@ -30,6 +30,14 @@ static std::string tokenValue(const Node::Ptr& node) {
     return node->getToken()->getValue();
 }
 
+static SourceLocation tokenLocation(const Node::Ptr& node) {
+    SourceLocation loc;
+    if (!node || !node->getToken().has_value()) return loc;
+    loc.line = node->getToken()->getSourceLine();
+    loc.column = node->getToken()->getSourceIndex();
+    return loc;
+}
+
 static std::string renderTypeInline(const TypeSpec& type);
 
 static RenderResult renderDeclarator(const Declarator& decl);
@@ -468,10 +476,12 @@ static TypeSpec buildType(const Node::Ptr& node) {
 
     if (kids.at(0)->getType() == structtype) {
         typeSpec.kind = TypeSpec::Kind::Struct;
+        typeSpec.loc = tokenLocation(kids.at(0)->getChildren().at(0));
         const auto& skids = kids.at(0)->getChildren();
         StructType st;
         if (skids.size() >= 2 && skids.at(1)->getType() == id) {
             st.name = tokenValue(skids.at(1));
+            st.nameLoc = tokenLocation(skids.at(1));
         }
         if (skids.size() >= 4 && isTerminalValue(skids.at(1), "{")) {
             collectStructDecls(skids.at(2), st.fields);
@@ -484,6 +494,7 @@ static TypeSpec buildType(const Node::Ptr& node) {
 
     typeSpec.kind = TypeSpec::Kind::Builtin;
     typeSpec.builtin = tokenValue(kids.at(0));
+    typeSpec.loc = tokenLocation(kids.at(0));
     return typeSpec;
 }
 
@@ -496,6 +507,7 @@ static DirectDeclarator buildDirectDeclarator(const Node::Ptr& node) {
     } else {
         direct.kind = DirectDeclarator::Kind::Identifier;
         direct.identifier = tokenValue(kids.at(0));
+        direct.identifierLoc = tokenLocation(kids.at(0));
     }
 
     const auto& suffix = kids.at(kids.size() - 1);
@@ -624,12 +636,14 @@ static std::shared_ptr<Statement> buildStatement(const Node::Ptr& node) {
         case labelstatement: {
             StmtLabel labelStmt;
             labelStmt.label = tokenValue(child->getChildren().at(0));
+            labelStmt.loc = tokenLocation(child->getChildren().at(0));
             labelStmt.stmt = buildStatement(child->getChildren().at(2));
             stmt->node = labelStmt;
             return stmt;
         }
         case selectstatement: {
             StmtIf ifStmt;
+            ifStmt.loc = tokenLocation(child->getChildren().at(0));
             ifStmt.condition = Expr{child->getChildren().at(2)->getChildren().at(0)};
             ifStmt.thenStmt = buildStatement(child->getChildren().at(4));
             const auto& elseNode = child->getChildren().at(5);
@@ -641,6 +655,7 @@ static std::shared_ptr<Statement> buildStatement(const Node::Ptr& node) {
         }
         case iterstatement: {
             StmtWhile whileStmt;
+            whileStmt.loc = tokenLocation(child->getChildren().at(0));
             whileStmt.condition = Expr{child->getChildren().at(2)->getChildren().at(0)};
             whileStmt.body = buildStatement(child->getChildren().at(4));
             stmt->node = whileStmt;
@@ -649,17 +664,20 @@ static std::shared_ptr<Statement> buildStatement(const Node::Ptr& node) {
         case jumpstatement: {
             const auto& jkids = child->getChildren();
             if (isTerminalValue(jkids.at(0), "goto")) {
-                stmt->node = StmtGoto{tokenValue(jkids.at(1))};
+                stmt->node = StmtGoto{tokenValue(jkids.at(1)), tokenLocation(jkids.at(0))};
             } else if (isTerminalValue(jkids.at(0), "continue")) {
-                stmt->node = StmtContinue{};
+                stmt->node = StmtContinue{tokenLocation(jkids.at(0))};
             } else if (isTerminalValue(jkids.at(0), "break")) {
-                stmt->node = StmtBreak{};
+                stmt->node = StmtBreak{tokenLocation(jkids.at(0))};
             } else if (isTerminalValue(jkids.at(0), "return") && jkids.size() > 2) {
                 StmtReturn ret;
+                ret.loc = tokenLocation(jkids.at(0));
                 ret.expr = Expr{jkids.at(1)->getChildren().at(0)};
                 stmt->node = ret;
             } else {
-                stmt->node = StmtReturn{};
+                StmtReturn ret;
+                ret.loc = tokenLocation(jkids.at(0));
+                stmt->node = ret;
             }
             return stmt;
         }

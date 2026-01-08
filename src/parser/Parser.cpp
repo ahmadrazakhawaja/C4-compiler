@@ -9,6 +9,8 @@
 #include "../helper/Utils.h"
 #include "../lexer/Tokenizer.h"
 #include "../prettyPrint/prettyPrint.h"
+#include "../ast/Ast.h"
+#include "../semantic/Semantic.h"
 
 // -------------------------
 // Debug helpers (shallow)
@@ -65,7 +67,7 @@ Token Parser::peek(int k) {
 // -------------------------
 // Static run
 // -------------------------
-void Parser::run(const std::string& fileName, const std::string& path, bool isVerbose) {
+bool Parser::run(const std::string& fileName, const std::string& path, bool isVerbose) {
     std::string fullPath = "test/lexer/" + fileName;
     std::string sourceCode = Utils::readSourceCode(fullPath);
     sourceCode += '\0';
@@ -75,13 +77,16 @@ void Parser::run(const std::string& fileName, const std::string& path, bool isVe
         int a = sequence.second->first;
         int b = sequence.second->second;
         std::cerr << "Lexer Error at line:" << a+1 << ":" << b+1 << std::endl;
-        return;
+        return false;
     }
 
     std::vector<Token> tokens = sequence.first;
     Parser parser(tokens, isVerbose);
 
     if (!parser.parse()) {
+        auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
+        if (!semantic::analyze(astTree, std::cerr)) return false;
+
         std::cout << "Successfully parsed " << fileName << "\n";
         prettyPrint::Options opt;
         opt.unicodeBranches = false;
@@ -89,7 +94,9 @@ void Parser::run(const std::string& fileName, const std::string& path, bool isVe
 
         std::cout << "\n=== Parse Tree ===\n";
         prettyPrint::printTree(parser.getParseTreeRoot(), std::cout, opt);
+        return true;
     }
+    return false;
 }
 
 // -------------------------
@@ -183,17 +190,22 @@ static std::optional<Symbol> toSymbol(const std::string& str, bool isExpectArg) 
     return std::nullopt;
 }
 
+struct OpEntry {
+    Symbol op;
+    Token tok;
+};
+
 // Reduce now uses Node::Ptr stacks
-static int reduce(std::vector<Symbol>& opStack, std::vector<Node::Ptr>& argStack) {
+static int reduce(std::vector<OpEntry>& opStack, std::vector<Node::Ptr>& argStack) {
     if (opStack.empty()) return 1;
 
-    Symbol op = opStack.back();
+    OpEntry entry = opStack.back();
     opStack.pop_back();
 
-    auto node = Node::make(op);
+    auto node = Node::make(entry.op, entry.tok);
     int argStackSize = (int)argStack.size();
 
-    switch(op) {
+    switch(entry.op) {
         case ternary: {
             if (argStackSize < 3) return 1;
             node->addChild(argStack.at(argStackSize - 3));
@@ -241,7 +253,7 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, bool isOute
 }
 
 std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string limit2, bool isOutermost) {
-    std::vector<Symbol> opStack;
+    std::vector<OpEntry> opStack;
     std::vector<Node::Ptr> argStack;
     bool isExpectArg = true;
 
@@ -334,19 +346,20 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
         remRevExprSymbols.push_back(Node::makeTerminal(tok.getValue()));
 
         Symbol op = *maybeOp;
+        Token opTok = tok;
         if (op == functioncall || op == arrayaccess || op == parenthesizedexpr) isExpectArg = false;
         else isExpectArg = true;
 
         while (op != parenthesizedexpr && !opStack.empty() &&
-               (opPrec(op) < opPrec(opStack.back()) ||
-                (!isRightAssociative(op) && opPrec(op) == opPrec(opStack.back())))) {
+               (opPrec(op) < opPrec(opStack.back().op) ||
+                (!isRightAssociative(op) && opPrec(op) == opPrec(opStack.back().op)))) {
             if (reduce(opStack, argStack)) return std::nullopt;
         }
 
         if (op == parenthesizedexpr) {
             auto res = evilShuntingYard(")", false);
             if (!res.has_value()) return std::nullopt;
-            auto n = Node::make(op);
+            auto n = Node::make(op, opTok);
             n->addChild(res.value());
             argStack.push_back(n);
             continue;
@@ -356,7 +369,7 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
             auto res = evilShuntingYard("]", false);
             if (!res.has_value()) return std::nullopt;
             argStack.push_back(res.value());
-            opStack.push_back(op);
+            opStack.push_back(OpEntry{op, opTok});
             continue;
         }
 
@@ -364,7 +377,7 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
             if (peekExpr(0).getValue() == ")") {
                 remTokensExpressionIndex++;
                 remRevExprSymbols.push_back(Node::makeTerminal(")"));
-                auto n = Node::make(op);
+                auto n = Node::make(op, opTok);
                 n->addChild(argStack.back());
                 argStack.push_back(n);
                 continue;
@@ -391,7 +404,7 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
                 }
             }
 
-            auto n = Node::make(op);
+            auto n = Node::make(op, opTok);
             int total = (int)argStack.size();
             for (int i = 0; i <= args; i++) { // includes function name
                 n->addChild(argStack.at(total - 1 - args + i));
@@ -405,11 +418,11 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
             auto res = evilShuntingYard(":", false);
             if (!res.has_value()) return std::nullopt;
             argStack.push_back(res.value());
-            opStack.push_back(op);
+            opStack.push_back(OpEntry{op, opTok});
             continue;
         }
 
-        opStack.push_back(op);
+        opStack.push_back(OpEntry{op, opTok});
     }
 
     while (!opStack.empty()) {

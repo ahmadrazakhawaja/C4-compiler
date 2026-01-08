@@ -5,6 +5,7 @@
 #include "helper/Utils.h"
 #include "parser/Parser.h"
 #include "ast/Ast.h"
+#include "semantic/Semantic.h"
 
 int main(int argc, char** argv) {
     if (argc >= 3 && std::string(argv[1]) == "--tokenize") {
@@ -32,16 +33,16 @@ int main(int argc, char** argv) {
         std::string file = argv[2];
         std::string fullPath = "test/lexer/" + file;
 
-        Parser::run(file, fullPath, false);
-        return 0;
+        bool ok = Parser::run(file, fullPath, false);
+        return ok ? 0 : 1;
     }
 
     if(argc >= 3 && std::string(argv[1]) == "--parse_verbose") {
         std::string file = argv[2];
         std::string fullPath = "test/lexer/" + file;
 
-        Parser::run(file, fullPath, true);
-        return 0;
+        bool ok = Parser::run(file, fullPath, true);
+        return ok ? 0 : 1;
     }
 
     if (argc >= 3 && std::string(argv[1]) == "--print-ast") {
@@ -63,6 +64,7 @@ int main(int argc, char** argv) {
         if (parser.parse() != 0) return 1;
 
         auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
+        if (!semantic::analyze(astTree, std::cerr)) return 1;
         ast::printAst(astTree, std::cout);
         return 0;
     }

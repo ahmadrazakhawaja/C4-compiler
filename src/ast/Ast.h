@@ -11,6 +11,11 @@
 
 namespace ast {
 
+struct SourceLocation {
+    int line = -1;
+    int column = -1;
+};
+
 struct TypeSpec;
 struct Declarator;
 struct AbstractDeclarator;
@@ -24,6 +29,7 @@ struct Expr {
 
 struct StructType {
     std::optional<std::string> name;
+    SourceLocation nameLoc;
     std::vector<Decl> fields;
 };
 
@@ -32,6 +38,7 @@ struct TypeSpec {
     Kind kind = Kind::Builtin;
     std::string builtin;
     StructType structType;
+    SourceLocation loc;
 };
 
 struct ParamDecl {
@@ -48,6 +55,7 @@ struct DirectDeclarator {
     enum class Kind { Identifier, Nested };
     Kind kind = Kind::Identifier;
     std::string identifier;
+    SourceLocation identifierLoc;
     std::shared_ptr<Declarator> nested;
     std::vector<ParamList> params;
 };
@@ -89,30 +97,39 @@ struct StmtExpr {
 };
 
 struct StmtIf {
+    SourceLocation loc;
     Expr condition;
     std::shared_ptr<Statement> thenStmt;
     std::shared_ptr<Statement> elseStmt;
 };
 
 struct StmtWhile {
+    SourceLocation loc;
     Expr condition;
     std::shared_ptr<Statement> body;
 };
 
 struct StmtLabel {
     std::string label;
+    SourceLocation loc;
     std::shared_ptr<Statement> stmt;
 };
 
 struct StmtGoto {
     std::string label;
+    SourceLocation loc;
 };
 
-struct StmtContinue {};
-struct StmtBreak {};
+struct StmtContinue {
+    SourceLocation loc;
+};
+struct StmtBreak {
+    SourceLocation loc;
+};
 
 struct StmtReturn {
     std::optional<Expr> expr;
+    SourceLocation loc;
 };
 
 struct Statement {
