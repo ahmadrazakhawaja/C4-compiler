@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <ostream>
+#include <vector>
 
 #include "../helper/structs/TokenizeAttempt.h"
 
