@@ -294,6 +294,7 @@ private:
     void analyzeDecl(const ast::Decl& decl) {
         Type base = typeFromTypeSpec(decl.type);
         if (!decl.declarator) {
+            report(decl.type.loc, "missing declarator");
             return;
         }
 
@@ -367,7 +368,7 @@ private:
 
         pushScope();
         addParameters(func.declarator, funcType);
-        analyzeCompound(func.body);
+        analyzeCompound(func.body, false);
         popScope();
 
         for (const auto& gotoPair : pendingGotos) {
@@ -394,7 +395,13 @@ private:
                     info.type = funcType.params.at(paramIndex);
                     info.loc = loc;
                     declare(name, info);
+                } else {
+                    report(param->type.loc, "parameter name missing");
                 }
+            } else if (param->abstractDeclarator) {
+                report(param->type.loc, "parameter name missing");
+            } else {
+                report(param->type.loc, "parameter name missing");
             }
             paramIndex++;
         }
@@ -412,12 +419,16 @@ private:
         }
     }
 
-    void analyzeCompound(const ast::StmtCompound& compound) {
-        pushScope();
+    void analyzeCompound(const ast::StmtCompound& compound, bool newScope = true) {
+        if (newScope) {
+            pushScope();
+        }
         for (const auto& item : compound.items) {
             analyzeStatement(*item);
         }
-        popScope();
+        if (newScope) {
+            popScope();
+        }
     }
 
     void analyzeStatement(const ast::Statement& stmt) {

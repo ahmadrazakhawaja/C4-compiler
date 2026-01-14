@@ -63,7 +63,9 @@ Token Parser::peek(int k) {
     if (isVerbose) {
         std::cout << "\t\tPeeked at " << remTokens.at(remTokens.size()-k-1) << " using k=" << k << "\n";
     }
-    return remTokens.at(remTokens.size() - k - 1);
+    Token tok = remTokens.at(remTokens.size() - k - 1);
+    lastTokenSeen = tok;
+    return tok;
 }
 
 // -------------------------
@@ -509,7 +511,19 @@ int Parser::parse() {
 
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
-    std::cerr << parseFileName << ": error: parse error\n";
+    if (!remTokens.empty()) {
+        const Token& next = remTokens.back();
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else if (lastTokenSeen.has_value()) {
+        const Token& next = *lastTokenSeen;
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else {
+        std::cerr << parseFileName << ": error: parse error\n";
+    }
     dump_state();
     return 1;
 }
@@ -519,6 +533,9 @@ int Parser::parse() {
 // -------------------------
 std::optional<Node::Ptr> Parser::parseSymbol() {
     Node::Ptr symbol = remSymbols.back();
+    if (remTokens.empty()) {
+        return std::nullopt;
+    }
     Token next = peek(0);
 
     switch (symbol->getType()) {
