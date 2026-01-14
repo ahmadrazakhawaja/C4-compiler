@@ -42,8 +42,9 @@ static void print_production(const Node::Ptr& node) {
 // -------------------------
 // Constructor
 // -------------------------
-Parser::Parser(std::vector<Token> tokens, bool verbose)
+Parser::Parser(std::vector<Token> tokens, bool verbose, std::string fileName)
     : parseTreeRoot(Node::make(start)), isVerbose(verbose) {
+    parseFileName = fileName.empty() ? "unknown" : std::move(fileName);
     while (!tokens.empty()) {
         remTokens.push_back(tokens.back());
         tokens.pop_back();
@@ -80,18 +81,18 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
 
     if (sequence.second.has_value()) {
-        int a = sequence.second->first;
-        int b = sequence.second->second;
-        std::cerr << "Lexer Error at line:" << a+1 << ":" << b+1 << std::endl;
+        const auto& err = *sequence.second;
+        std::cerr << fileName << ":" << err.line + 1 << ":" << err.column + 1
+                  << ": Lexer Error: " << err.message << std::endl;
         return false;
     }
 
     std::vector<Token> tokens = sequence.first;
-    Parser parser(tokens, isVerbose);
+    Parser parser(tokens, isVerbose, fileName);
 
     if (!parser.parse()) {
         auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
-        if (!semantic::analyze(astTree, std::cerr)) return false;
+        if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
 
         std::cout << "Successfully parsed " << fileName << "\n";
         prettyPrint::Options opt;
@@ -464,7 +465,10 @@ int Parser::parse() {
             }
 
             if (!res.has_value()) {
-                std::cout << "Expression Parsing Error at Token " << remTokens.back() << "\n";
+                const Token& next = remTokens.back();
+                std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                          << ":" << next.getSourceIndex() + 1
+                          << ": Parsing Error at Token " << remTokens.back() << "\n";
                 dump_state();
                 return 1;
             }
@@ -477,7 +481,10 @@ int Parser::parse() {
 
         auto changedNode = parseSymbol();
         if (!changedNode.has_value()) {
-            std::cout << "Parsing Error at Token " << remTokens.back() << "\n";
+            const Token& next = remTokens.back();
+            std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                      << ":" << next.getSourceIndex() + 1
+                      << ": Parsing Error at Token " << remTokens.back() << "\n";
             dump_state();
             return 1;
         }
@@ -502,7 +509,7 @@ int Parser::parse() {
 
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
-    std::cout << "Failure. Leftover Tokens or Symbols.\n";
+    std::cerr << "Failure. Leftover Tokens or Symbols.\n";
     dump_state();
     return 1;
 }

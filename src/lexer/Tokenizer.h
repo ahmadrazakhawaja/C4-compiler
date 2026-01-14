@@ -4,11 +4,18 @@
 # include <vector>
 # include <optional>
 # include <utility>
+# include <string>
+
+struct LexError {
+    int line = -1;
+    int column = -1;
+    std::string message;
+};
 
 class Tokenizer {
 public:
     static TokenizeAttempt tokenize(const char* source, bool isVerbose);
-    static std::pair<std::vector<Token>, std::optional<std::pair<int, int>>> tokenizeSeq(std::string source, bool isVerbose);
+    static std::pair<std::vector<Token>, std::optional<LexError>> tokenizeSeq(std::string source, bool isVerbose);
 };
 
 # endif //COMPILER_LAB_TOKENIZER_H

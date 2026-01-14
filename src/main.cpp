@@ -62,9 +62,9 @@ int main(int argc, char** argv) {
         auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
 
         if (sequence.second.has_value()) {
-            int a = sequence.second->first;
-            int b = sequence.second->second;
-            std::cerr << "Lexer Error at line:" << a+1 << ":" << b+1 << std::endl;
+            const auto& err = *sequence.second;
+            std::cerr << file << ":" << err.line + 1 << ":" << err.column + 1
+                      << ": Lexer Error: " << err.message << std::endl;
             return 1;
         }
 
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
         if (parser.parse() != 0) return 1;
 
         auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
-        if (!semantic::analyze(astTree, std::cerr)) return 1;
+        if (!semantic::analyze(astTree, std::cerr, file)) return 1;
         ast::printAst(astTree, std::cout);
         return 0;
     }

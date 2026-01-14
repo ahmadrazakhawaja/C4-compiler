@@ -15,6 +15,14 @@ TokenizeAttempt TokenizeHelper::tokenizeStringLiterals(const char* code) {
 
     while (*ptr) {
         if (escaped) {
+            char c = *ptr;
+            if (!(c == 'n' || c == 't' || c == 'r' || c == 'b' ||
+                c == 'f' || c == 'v' || c == 'a' ||
+                c == '\\' || c == '\'' || c == '\"' || c == '?')) {
+                TokenizeAttempt attempt;
+                attempt.setCharsLexed(ptr - start);
+                return attempt;
+            }
             escaped = false;
         } else if (*ptr == '\\') {
             escaped = true;
@@ -33,6 +41,9 @@ TokenizeAttempt TokenizeHelper::tokenizeStringLiterals(const char* code) {
     }
     return TokenizeAttempt();
 }
+
+bool isIdentifierNonDigit(char c);
+bool isDigit_orIdentifierNonDigit(char c);
 
 TokenizeAttempt TokenizeHelper::tokenizeKeywordPunctuators(const char* code) {
     int max_len;
@@ -73,6 +84,9 @@ TokenizeAttempt TokenizeHelper::tokenizeKeywordPunctuators(const char* code) {
                 Token found;
                 found.setTokenType("punctuator");
                 if(index > 45) {
+                    if (code[i] != '\0' && isDigit_orIdentifierNonDigit(code[i])) {
+                        return TokenizeAttempt();
+                    }
                     found.setTokenType("keyword");
                 }
                 found.setValue(toCheck);

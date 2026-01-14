@@ -98,8 +98,8 @@ static SourceLocation locFromNode(const Node::Ptr& node) {
 
 class Analyzer {
 public:
-    explicit Analyzer(std::ostream& errStream)
-        : err(errStream) {
+    explicit Analyzer(std::ostream& errStream, std::string file)
+        : err(errStream), fileName(std::move(file)) {
         scopes.emplace_back();
     }
 
@@ -112,6 +112,7 @@ public:
 
 private:
     std::ostream& err;
+    std::string fileName;
     bool ok = true;
     std::vector<std::unordered_map<std::string, SymbolInfo>> scopes;
     std::unordered_map<std::string, StructInfo> structs;
@@ -127,9 +128,10 @@ private:
 
     void report(const SourceLocation& loc, const std::string& msg) {
         if (loc.line >= 0) {
-            err << "Semantic Error at line:" << loc.line + 1 << ":" << loc.column + 1 << " " << msg << "\n";
+            err << fileName << ":" << loc.line + 1 << ":" << loc.column + 1
+                << ": Semantic Error: " << msg << "\n";
         } else {
-            err << "Semantic Error: " << msg << "\n";
+            err << fileName << ": Semantic Error: " << msg << "\n";
         }
         ok = false;
     }
@@ -784,8 +786,8 @@ private:
 
 } // namespace
 
-bool analyze(const ast::TranslationUnit& tu, std::ostream& err) {
-    Analyzer analyzer(err);
+bool analyze(const ast::TranslationUnit& tu, std::ostream& err, const std::string& fileName) {
+    Analyzer analyzer(err, fileName.empty() ? "unknown" : fileName);
     return analyzer.run(tu);
 }
 

@@ -34,10 +34,10 @@ bool run_lexer(const std::string& fileName, const std::string& path, bool isVerb
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, isVerbose);
     // error appeared
     if (sequence.second.has_value()) {
-        int a = sequence.second->first;
-        int b = sequence.second->second;
+        const auto& err = *sequence.second;
         printTokens(sequence.first, fileName);
-        std::cerr << "Lexer Error at line:" << a+1 << ":" << b+1 << std::endl;
+        std::cerr << fileName << ":" << err.line + 1 << ":" << err.column + 1
+                  << ": Lexer Error: " << err.message << std::endl;
         return false;
     }
     // print tokens

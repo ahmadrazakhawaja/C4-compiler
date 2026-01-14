@@ -9,7 +9,7 @@
 
 class Parser {
 public:
-    Parser(std::vector<Token> tokens, bool isVerbose);
+    Parser(std::vector<Token> tokens, bool isVerbose, std::string fileName = {});
     static bool run(const std::string& fileName, const std::string& path, bool isVerbose);
 
     Node::Ptr peekSymbol(int k);
@@ -28,6 +28,7 @@ public:
     std::optional<Node::Ptr> evilShuntingYard(std::string limit, bool isOutermost);
 
 private:
+    std::string parseFileName;
     std::vector<Token> remTokens;
     std::vector<Node::Ptr> remSymbols;
 

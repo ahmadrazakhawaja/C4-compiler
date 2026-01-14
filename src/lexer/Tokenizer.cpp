@@ -33,7 +33,7 @@ TokenizeAttempt Tokenizer::tokenize(const char* src, bool isVerbose) {
 }
 
 
-std::pair<std::vector<Token>, std::optional<std::pair<int, int>>> Tokenizer::tokenizeSeq(std::string source, bool isVerbose) {
+std::pair<std::vector<Token>, std::optional<LexError>> Tokenizer::tokenizeSeq(std::string source, bool isVerbose) {
     const char* sourceP = source.c_str();
     std::vector<Token> tokens;
     int line = 0;
@@ -42,10 +42,15 @@ std::pair<std::vector<Token>, std::optional<std::pair<int, int>>> Tokenizer::tok
     while(true) {
         char c = *sourceP;
         if(c == '\0') { //End of source code, we are done and successful, unless we are in a comment.
-            if(commentState==2)
-                return std::pair(tokens, std::pair(line,pos));
+            if(commentState==2) {
+                LexError err;
+                err.line = line;
+                err.column = pos;
+                err.message = "unterminated block comment";
+                return {tokens, err};
+            }
             tokens.push_back(Token("EOF", "EOF", line, pos));
-            return {tokens, std::optional<std::pair<int,int>>{}};
+            return {tokens, std::optional<LexError>{}};
         }
 
         if(commentState==1) {
@@ -84,11 +89,13 @@ std::pair<std::vector<Token>, std::optional<std::pair<int, int>>> Tokenizer::tok
         if(*sourceP == '/' && *(sourceP+1)=='/') {
             pos+=2;
             commentState = 1;
+            sourceP += 2;
             continue;
         }
         if(*sourceP == '/' && *(sourceP+1)=='*') {
             pos+=2;
             commentState = 2;
+            sourceP += 2;
             continue;
         }
 
@@ -111,7 +118,11 @@ std::pair<std::vector<Token>, std::optional<std::pair<int, int>>> Tokenizer::tok
             int lexed = attempt.getCharsLexed();
             pos += lexed;
             sourceP += lexed;
-            return {tokens, std::optional<std::pair<int,int>>{ {line, pos} }};
+            LexError err;
+            err.line = line;
+            err.column = pos;
+            err.message = "invalid token";
+            return {tokens, std::optional<LexError>{err}};
         }
 
         int lexed = attempt.getCharsLexed();
