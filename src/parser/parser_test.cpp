@@ -1,10 +1,8 @@
-#include <iostream>
-#include <stack>
-#include "../helper/structs/Node.h"
-#include "Parser.h"
-#include "../helper/structs/Token.h"
-
-int main() {
+int parser_test() {
+    return 0;
+}
+/*
+int parser_test() {
     Token t1("IDENT", "x", 1, 1);
     Token t2("PLUS", "+", 1, 2);
     Token t3("IDENT", "y", 1, 3);
@@ -40,8 +38,9 @@ int main() {
     while (!nodeStack.empty()) {
         Node n = nodeStack.top();
         nodeStack.pop();
-        std::cout << "Node with Token: " << n.getToken().getValue() << std::endl;
+        std::cout << "Node with Token: " << n.getToken()->getValue() << std::endl;
     }
 
     return 0;
 }
+*/

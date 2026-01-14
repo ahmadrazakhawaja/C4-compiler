@@ -1,24 +1,41 @@
 #ifndef COMPILER_LAB_PARSER_H
 #define COMPILER_LAB_PARSER_H
+
 #include "../helper/structs/Token.h"
 #include "../helper/structs/Node.h"
-#include <stack>
+#include <optional>
+#include <vector>
+#include <string>
 
 class Parser {
 public:
-    Parser(std::stack<Token> tokensStack, std::stack<Node> nodesStack);
-    Parser();
+    Parser(std::vector<Token> tokens, bool isVerbose);
+    static bool run(const std::string& fileName, const std::string& path, bool isVerbose);
 
-    Token lookahead(int k);
-    Token consume(); // for terminals
+    Node::Ptr peekSymbol(int k);
+    Token peek(int k);
+    Token peekExpr(int k);
 
-    std::stack<Token> getTokens() const { return tokens; }
-    void setTokens(const std::stack<Token> &tokens) { this->tokens = tokens; }
-    std::stack<Node> getNodes() const { return nodes; }
-    void setNodes(const std::stack<Node> &nodes) { this->nodes = nodes; }
+    void dump_state();
+    int parse();
+    std::optional<Node::Ptr> parseSymbol();
+
+    const std::vector<Token>& getRemTokens() const { return remTokens; }
+    const std::vector<Node::Ptr>& getRemSymbols() const { return remSymbols; }
+    Node::Ptr getParseTreeRoot() const { return parseTreeRoot; }
+
+    std::optional<Node::Ptr> evilShuntingYard(std::string limit, std::string limit2, bool isOutermost);
+    std::optional<Node::Ptr> evilShuntingYard(std::string limit, bool isOutermost);
 
 private:
-    std::stack<Token> tokens;
-    std::stack<Node> nodes;
+    std::vector<Token> remTokens;
+    std::vector<Node::Ptr> remSymbols;
+
+    int remTokensExpressionIndex = 0;
+    std::vector<Node::Ptr> remRevExprSymbols;
+
+    Node::Ptr parseTreeRoot;
+    bool isVerbose = false;
 };
-#endif //COMPILER_LAB_PARSER_H
+
+#endif
