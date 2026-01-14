@@ -129,9 +129,9 @@ private:
     void report(const SourceLocation& loc, const std::string& msg) {
         if (loc.line >= 0) {
             err << fileName << ":" << loc.line + 1 << ":" << loc.column + 1
-                << ": Semantic Error: " << msg << "\n";
+                << ": error: " << msg << "\n";
         } else {
-            err << fileName << ": Semantic Error: " << msg << "\n";
+            err << fileName << ": error: " << msg << "\n";
         }
         ok = false;
     }

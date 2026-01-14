@@ -1,39 +1,30 @@
 #include "lexer/Lexer.h"
 #include "lexer/Tokenizer.h"
 #include <iostream>
-#include <filesystem>
 #include <exception>
 #include "helper/Utils.h"
 #include "parser/Parser.h"
 #include "ast/Ast.h"
 #include "semantic/Semantic.h"
 
-static std::string display_name_from_path(const std::string& path) {
-    std::filesystem::path filePath(path);
-    if (filePath.has_filename()) {
-        return filePath.filename().string();
-    }
-    return path;
-}
-
 int main(int argc, char** argv) {
     if (argc >= 3 && std::string(argv[1]) == "--tokenize") {
 
         std::string fullPath = argv[2];
-        std::string file = display_name_from_path(fullPath);
+        std::string file = fullPath;
 
         return run_lexer(file, fullPath, false) ? 0 : 1;
     }
     if (argc >= 3 && std::string(argv[1]) == "--tokenize_verbose") {
 
         std::string fullPath = argv[2];
-        std::string file = display_name_from_path(fullPath);
+        std::string file = fullPath;
 
         return run_lexer(file, fullPath, true) ? 0 : 1;
     }
     if(argc >= 3 && std::string(argv[1]) == "--parse") {
         std::string fullPath = argv[2];
-        std::string file = display_name_from_path(fullPath);
+        std::string file = fullPath;
 
         bool ok = Parser::run(file, fullPath, false);
         return ok ? 0 : 1;
@@ -41,7 +32,7 @@ int main(int argc, char** argv) {
 
     if(argc >= 3 && std::string(argv[1]) == "--parse_verbose") {
         std::string fullPath = argv[2];
-        std::string file = display_name_from_path(fullPath);
+        std::string file = fullPath;
 
         bool ok = Parser::run(file, fullPath, true);
         return ok ? 0 : 1;
@@ -49,7 +40,7 @@ int main(int argc, char** argv) {
 
     if (argc >= 3 && std::string(argv[1]) == "--print-ast") {
         std::string fullPath = argv[2];
-        std::string file = display_name_from_path(fullPath);
+        std::string file = fullPath;
 
         std::string sourceCode;
         try {
@@ -64,7 +55,7 @@ int main(int argc, char** argv) {
         if (sequence.second.has_value()) {
             const auto& err = *sequence.second;
             std::cerr << file << ":" << err.line + 1 << ":" << err.column + 1
-                      << ": Lexer Error: " << err.message << std::endl;
+                      << ": error: " << err.message << std::endl;
             return 1;
         }
 

@@ -39,13 +39,15 @@ std::pair<std::vector<Token>, std::optional<LexError>> Tokenizer::tokenizeSeq(st
     int line = 0;
     int pos = 0;
     int commentState = 0; //0=none, 1=singleline, 2=multiline.
+    int commentStartLine = 0;
+    int commentStartPos = 0;
     while(true) {
         char c = *sourceP;
         if(c == '\0') { //End of source code, we are done and successful, unless we are in a comment.
             if(commentState==2) {
                 LexError err;
-                err.line = line;
-                err.column = pos;
+                err.line = commentStartLine;
+                err.column = commentStartPos;
                 err.message = "unterminated block comment";
                 return {tokens, err};
             }
@@ -95,6 +97,8 @@ std::pair<std::vector<Token>, std::optional<LexError>> Tokenizer::tokenizeSeq(st
         if(*sourceP == '/' && *(sourceP+1)=='*') {
             pos+=2;
             commentState = 2;
+            commentStartLine = line;
+            commentStartPos = pos - 2;
             sourceP += 2;
             continue;
         }
@@ -106,7 +110,7 @@ std::pair<std::vector<Token>, std::optional<LexError>> Tokenizer::tokenizeSeq(st
             sourceP++;
             continue;
         }
-        else if(std::isspace(c)) { // whitespace außer '\n'
+        else if(std::isspace(static_cast<unsigned char>(c))) { // whitespace außer '\n'
             pos++;
             sourceP++;
             continue;
@@ -116,11 +120,9 @@ std::pair<std::vector<Token>, std::optional<LexError>> Tokenizer::tokenizeSeq(st
 
         if(!attempt.getToken()) {
             int lexed = attempt.getCharsLexed();
-            pos += lexed;
-            sourceP += lexed;
             LexError err;
             err.line = line;
-            err.column = pos;
+            err.column = pos + (lexed > 0 ? lexed : 0);
             err.message = "invalid token";
             return {tokens, std::optional<LexError>{err}};
         }

@@ -37,7 +37,7 @@ bool run_lexer(const std::string& fileName, const std::string& path, bool isVerb
         const auto& err = *sequence.second;
         printTokens(sequence.first, fileName);
         std::cerr << fileName << ":" << err.line + 1 << ":" << err.column + 1
-                  << ": Lexer Error: " << err.message << std::endl;
+                  << ": error: " << err.message << std::endl;
         return false;
     }
     // print tokens

@@ -83,7 +83,7 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
     if (sequence.second.has_value()) {
         const auto& err = *sequence.second;
         std::cerr << fileName << ":" << err.line + 1 << ":" << err.column + 1
-                  << ": Lexer Error: " << err.message << std::endl;
+                  << ": error: " << err.message << std::endl;
         return false;
     }
 
@@ -468,7 +468,7 @@ int Parser::parse() {
                 const Token& next = remTokens.back();
                 std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                           << ":" << next.getSourceIndex() + 1
-                          << ": Parsing Error at Token " << remTokens.back() << "\n";
+                          << ": error: parse error\n";
                 dump_state();
                 return 1;
             }
@@ -484,7 +484,7 @@ int Parser::parse() {
             const Token& next = remTokens.back();
             std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                       << ":" << next.getSourceIndex() + 1
-                      << ": Parsing Error at Token " << remTokens.back() << "\n";
+                      << ": error: parse error\n";
             dump_state();
             return 1;
         }
@@ -509,7 +509,7 @@ int Parser::parse() {
 
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
-    std::cerr << "Failure. Leftover Tokens or Symbols.\n";
+    std::cerr << parseFileName << ": error: parse error\n";
     dump_state();
     return 1;
 }

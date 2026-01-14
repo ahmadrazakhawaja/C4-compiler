@@ -26,6 +26,10 @@ TokenizeAttempt TokenizeHelper::tokenizeStringLiterals(const char* code) {
             escaped = false;
         } else if (*ptr == '\\') {
             escaped = true;
+        } else if (*ptr == '\n') {
+            TokenizeAttempt attempt;
+            attempt.setCharsLexed(ptr - start);
+            return attempt;
         } else if (*ptr == '"') {
             std::string value(start, ptr - start + 1);
             Token token;
@@ -39,7 +43,9 @@ TokenizeAttempt TokenizeHelper::tokenizeStringLiterals(const char* code) {
         }
         ++ptr;
     }
-    return TokenizeAttempt();
+    TokenizeAttempt attempt;
+    attempt.setCharsLexed(ptr - start);
+    return attempt;
 }
 
 bool isIdentifierNonDigit(char c);
