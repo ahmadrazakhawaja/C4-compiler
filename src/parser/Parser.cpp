@@ -1,6 +1,7 @@
 #include "Parser.h"
 #include <iostream>
 #include <vector>
+#include <exception>
 
 #include "../helper/structs/Node.h"
 #include "../helper/structs/Token.h"
@@ -68,8 +69,13 @@ Token Parser::peek(int k) {
 // Static run
 // -------------------------
 bool Parser::run(const std::string& fileName, const std::string& path, bool isVerbose) {
-    std::string fullPath = "test/lexer/" + fileName;
-    std::string sourceCode = Utils::readSourceCode(fullPath);
+    std::string sourceCode;
+    try {
+        sourceCode = Utils::readSourceCode(path);
+    } catch (const std::exception& ex) {
+        std::cerr << ex.what() << std::endl;
+        return false;
+    }
     sourceCode += '\0';
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
 

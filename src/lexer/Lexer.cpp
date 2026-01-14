@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <exception>
 
 #include "Tokenizer.h"
 #include "./../helper/structs/Token.h"
@@ -21,8 +22,14 @@ void printTokens(std::vector<Token> tokens, std::string fileName) {
         }
 }
 
-void run_lexer(const std::string& fileName, const std::string& path, bool isVerbose) {
-    std::string sourceCode = Utils::readSourceCode(path);
+bool run_lexer(const std::string& fileName, const std::string& path, bool isVerbose) {
+    std::string sourceCode;
+    try {
+        sourceCode = Utils::readSourceCode(path);
+    } catch (const std::exception& ex) {
+        std::cerr << ex.what() << std::endl;
+        return false;
+    }
     sourceCode += '\0';
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, isVerbose);
     // error appeared
@@ -31,9 +38,9 @@ void run_lexer(const std::string& fileName, const std::string& path, bool isVerb
         int b = sequence.second->second;
         printTokens(sequence.first, fileName);
         std::cerr << "Lexer Error at line:" << a+1 << ":" << b+1 << std::endl;
+        return false;
     }
     // print tokens
-    else {
-        printTokens(sequence.first, fileName);
-    }
+    printTokens(sequence.first, fileName);
+    return true;
 }
