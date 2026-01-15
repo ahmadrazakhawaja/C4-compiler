@@ -9,6 +9,14 @@
 
 #define TEST_PATH "./test/lexer/"
 
+static std::string formatTokenType(const Token& token) {
+    const std::string& type = token.getTokenType();
+    if (type == "decimal-constant" || type == "character-constant") {
+        return "constant";
+    }
+    return type;
+}
+
 void printTokens(std::vector<Token> tokens, std::string fileName) {
     for (const Token& token : tokens) {
         if(token.getTokenType() == "EOF") {
@@ -17,7 +25,7 @@ void printTokens(std::vector<Token> tokens, std::string fileName) {
         std::cout << fileName << ":"
             << token.getSourceLine()+1 << ":"
             << token.getSourceIndex()+1 << ": "
-            << token.getTokenType() << " "
+            << formatTokenType(token) << " "
             << token.getValue() << std::endl;
         }
 }
