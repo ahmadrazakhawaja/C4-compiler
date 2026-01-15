@@ -505,20 +505,11 @@ int Parser::parse() {
 
     std::optional<Token> eofToken;
     if (!remTokens.empty() && remTokens.back().getTokenType() == "EOF") {
-        eofToken = remTokens.back();
         remTokens.pop_back();
     }
 
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
-    if (eofToken.has_value()) {
-        const Token& next = *eofToken;
-        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
-                  << ":" << next.getSourceIndex() + 1
-                  << ": error: parse error\n";
-    } else {
-        std::cerr << parseFileName << ": error: parse error\n";
-    }
     dump_state();
     return 1;
 }
