@@ -503,13 +503,13 @@ int Parser::parse() {
         }
     }
 
-    std::optional<Token> eofToken;
     if (!remTokens.empty() && remTokens.back().getTokenType() == "EOF") {
         remTokens.pop_back();
     }
 
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
+    std::cerr << parseFileName << ": error: parse error\n";
     dump_state();
     return 1;
 }
