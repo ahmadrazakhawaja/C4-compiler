@@ -466,6 +466,9 @@ int Parser::parse() {
 
             if (!res.has_value()) {
                 const Token& next = remTokens.back();
+                if (!errorToken.has_value()) {
+                    errorToken = next;
+                }
                 std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                           << ":" << next.getSourceIndex() + 1
                           << ": error: parse error\n";
@@ -482,6 +485,9 @@ int Parser::parse() {
         auto changedNode = parseSymbol();
         if (!changedNode.has_value()) {
             const Token& next = remTokens.back();
+            if (!errorToken.has_value()) {
+                errorToken = next;
+            }
             std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                       << ":" << next.getSourceIndex() + 1
                       << ": error: parse error\n";
@@ -503,13 +509,27 @@ int Parser::parse() {
         }
     }
 
+    std::optional<Token> eofToken;
     if (!remTokens.empty() && remTokens.back().getTokenType() == "EOF") {
+        eofToken = remTokens.back();
         remTokens.pop_back();
     }
 
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
-    std::cerr << parseFileName << ": error: parse error\n";
+    if (errorToken.has_value()) {
+        const Token& next = *errorToken;
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else if (eofToken.has_value()) {
+        const Token& next = *eofToken;
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else {
+        std::cerr << parseFileName << ": error: parse error\n";
+    }
     dump_state();
     return 1;
 }
