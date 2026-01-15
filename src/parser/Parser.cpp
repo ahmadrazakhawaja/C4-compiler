@@ -503,13 +503,16 @@ int Parser::parse() {
         }
     }
 
-    if (!remTokens.empty() && remTokens.back().getTokenType() == "EOF") {
-        remTokens.pop_back();
-    }
-
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
-    std::cerr << parseFileName << ": error: parse error\n";
+    if (!remTokens.empty()) {
+        const Token& next = remTokens.back();
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else {
+        std::cerr << parseFileName << ": error: parse error\n";
+    }
     dump_state();
     return 1;
 }
@@ -726,15 +729,30 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
 
         case paramdec_:
             if (peek(0).getValue() == "," || peek(0).getValue() == ")") return symbol;
-
-            for (int k = 0; peek(k).getValue() != "EOF"; ++k) {
-                if (peek(k).getTokenType() == "identifier") {
-                    symbol->addChild(declarator);
-                    return symbol;
-                }
-                if (peek(k).getValue() == ")") {
-                    symbol->addChild(abstractdeclarator);
-                    return symbol;
+            {
+                int depth = 0;
+                for (int k = 0; peek(k).getValue() != "EOF"; ++k) {
+                    const Token t = peek(k);
+                    if (t.getValue() == "(") {
+                        depth++;
+                        continue;
+                    }
+                    if (t.getValue() == ")") {
+                        if (depth == 0) {
+                            symbol->addChild(abstractdeclarator);
+                            return symbol;
+                        }
+                        depth--;
+                        continue;
+                    }
+                    if (depth == 0 && t.getValue() == ",") {
+                        symbol->addChild(abstractdeclarator);
+                        return symbol;
+                    }
+                    if (depth == 0 && t.getTokenType() == "identifier") {
+                        symbol->addChild(declarator);
+                        return symbol;
+                    }
                 }
             }
             return std::nullopt;
