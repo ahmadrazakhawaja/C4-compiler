@@ -521,6 +521,9 @@ private:
             case arrayaccess: {
                 auto base = analyzeExpr(node->getChildren().at(0));
                 auto idx = analyzeExpr(node->getChildren().at(1));
+                if (!isPointer(base.type) && isPointer(idx.type)) {
+                    std::swap(base, idx);
+                }
                 if (!isPointer(base.type)) report(info.loc, "array base is not a pointer");
                 if (!isInteger(idx.type)) report(info.loc, "array index is not integer");
                 if (isPointer(base.type)) {
@@ -639,6 +642,21 @@ private:
                     report(info.loc, "logical negation on non-scalar");
                 }
                 info.type = makeInt();
+                return info;
+            }
+            case preincrement:
+            case predecrement:
+            case postincrement:
+            case postdecrement: {
+                auto operand = analyzeExpr(node->getChildren().at(0));
+                if (!operand.isLvalue) {
+                    report(info.loc, "increment/decrement of non-lvalue");
+                }
+                if (!isScalar(operand.type)) {
+                    report(info.loc, "increment/decrement of non-scalar");
+                }
+                info.type = operand.type;
+                info.isLvalue = (node->getType() == preincrement || node->getType() == predecrement);
                 return info;
             }
             case sizeoperator: {

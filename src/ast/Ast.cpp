@@ -198,6 +198,14 @@ static std::string renderExpr(const Node::Ptr& node) {
             return "(-" + renderExpr(node->getChildren().at(0)) + ")";
         case negationlogical:
             return "(!" + renderExpr(node->getChildren().at(0)) + ")";
+        case preincrement:
+            return "(++" + renderExpr(node->getChildren().at(0)) + ")";
+        case predecrement:
+            return "(--" + renderExpr(node->getChildren().at(0)) + ")";
+        case postincrement:
+            return "(" + renderExpr(node->getChildren().at(0)) + "++)";
+        case postdecrement:
+            return "(" + renderExpr(node->getChildren().at(0)) + "--)";
         case sizeoperator: {
             const auto& kids = node->getChildren();
             if (!kids.empty() && kids.front()->getType() == type) {

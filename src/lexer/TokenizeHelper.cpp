@@ -52,6 +52,62 @@ bool isIdentifierNonDigit(char c);
 bool isDigit_orIdentifierNonDigit(char c);
 
 TokenizeAttempt TokenizeHelper::tokenizeKeywordPunctuators(const char* code) {
+    if (code) {
+        if (code[0] == '<' && code[1] == ':') {
+            Token token;
+            token.setTokenType("punctuator");
+            token.setValue("[");
+            TokenizeAttempt attempt;
+            attempt.setToken(token);
+            attempt.setCharsLexed(2);
+            return attempt;
+        }
+        if (code[0] == ':' && code[1] == '>') {
+            Token token;
+            token.setTokenType("punctuator");
+            token.setValue("]");
+            TokenizeAttempt attempt;
+            attempt.setToken(token);
+            attempt.setCharsLexed(2);
+            return attempt;
+        }
+        if (code[0] == '<' && code[1] == '%') {
+            Token token;
+            token.setTokenType("punctuator");
+            token.setValue("{");
+            TokenizeAttempt attempt;
+            attempt.setToken(token);
+            attempt.setCharsLexed(2);
+            return attempt;
+        }
+        if (code[0] == '%' && code[1] == '>') {
+            Token token;
+            token.setTokenType("punctuator");
+            token.setValue("}");
+            TokenizeAttempt attempt;
+            attempt.setToken(token);
+            attempt.setCharsLexed(2);
+            return attempt;
+        }
+        if (code[0] == '%' && code[1] == ':' && code[2] == '%' && code[3] == ':') {
+            Token token;
+            token.setTokenType("punctuator");
+            token.setValue("##");
+            TokenizeAttempt attempt;
+            attempt.setToken(token);
+            attempt.setCharsLexed(4);
+            return attempt;
+        }
+        if (code[0] == '%' && code[1] == ':') {
+            Token token;
+            token.setTokenType("punctuator");
+            token.setValue("#");
+            TokenizeAttempt attempt;
+            attempt.setToken(token);
+            attempt.setCharsLexed(2);
+            return attempt;
+        }
+    }
     int max_len;
     for(max_len=0;max_len<=10;max_len++) {
         if(code[max_len] == '\0')

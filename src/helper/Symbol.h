@@ -60,6 +60,10 @@
     X(negationarithmetic) \
     X(negationlogical) \
     X(sizeoperator) \
+    X(preincrement) \
+    X(predecrement) \
+    X(postincrement) \
+    X(postdecrement) \
     X(product) \
     X(sum) \
     X(difference) \

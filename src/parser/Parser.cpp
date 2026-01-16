@@ -131,12 +131,16 @@ static int opPrec(Symbol symbol) {
         case functioncall:
         case memberaccess:
         case pointermemberaccess: return 9;
+        case postincrement:
+        case postdecrement: return 9;
 
         case reference:
         case dereference:
         case negationarithmetic:
         case negationlogical:
-        case sizeoperator: return 8;
+        case sizeoperator:
+        case preincrement:
+        case predecrement: return 8;
 
         case product: return 7;
 
@@ -167,6 +171,8 @@ static bool isRightAssociative(Symbol symbol) {
         case negationarithmetic:
         case negationlogical:
         case sizeoperator:
+        case preincrement:
+        case predecrement:
         case ternary:
         case assignment:
             return true;
@@ -182,6 +188,8 @@ static std::optional<Symbol> toSymbol(const std::string& str, bool isExpectArg) 
     if (str == "->") return isExpectArg ? std::nullopt : std::make_optional(pointermemberaccess);
     if (str == "&") return isExpectArg ? std::make_optional(reference) : std::nullopt;
     if (str == "*") return isExpectArg ? std::make_optional(dereference) : std::make_optional(product);
+    if (str == "++") return isExpectArg ? std::make_optional(preincrement) : std::make_optional(postincrement);
+    if (str == "--") return isExpectArg ? std::make_optional(predecrement) : std::make_optional(postdecrement);
     if (str == "-") return isExpectArg ? std::make_optional(negationarithmetic) : std::make_optional(difference);
     if (str == "!") return isExpectArg ? std::make_optional(negationlogical) : std::nullopt;
     if (str == "sizeof") return isExpectArg ? std::make_optional(sizeoperator) : std::nullopt;
@@ -226,7 +234,11 @@ static int reduce(std::vector<OpEntry>& opStack, std::vector<Node::Ptr>& argStac
         case dereference:
         case negationarithmetic:
         case negationlogical:
-        case sizeoperator: {
+        case sizeoperator:
+        case preincrement:
+        case predecrement:
+        case postincrement:
+        case postdecrement: {
             if (argStackSize < 1) return 1;
             node->addChild(argStack.at(argStackSize - 1));
             argStack.pop_back();
@@ -380,8 +392,12 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
 
         Symbol op = *maybeOp;
         Token opTok = tok;
-        if (op == functioncall || op == arrayaccess || op == parenthesizedexpr) isExpectArg = false;
-        else isExpectArg = true;
+        if (op == functioncall || op == arrayaccess || op == parenthesizedexpr ||
+            op == postincrement || op == postdecrement) {
+            isExpectArg = false;
+        } else {
+            isExpectArg = true;
+        }
 
         while (op != parenthesizedexpr && !opStack.empty() &&
                (opPrec(op) < opPrec(opStack.back().op) ||
@@ -782,17 +798,32 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
 
         case paramdec_:
             if (peek(0).getValue() == "," || peek(0).getValue() == ")") return symbol;
-            for (int k = 0; peek(k).getValue() != "EOF"; ++k) {
-                if (peek(k).getTokenType() == "identifier") {
-                    symbol->addChild(declarator);
-                    return symbol;
-                }
-                if (peek(k).getValue() == ")") {
-                    symbol->addChild(abstractdeclarator);
-                    return symbol;
+            {
+                int depth = 0;
+                for (int k = 0; peek(k).getValue() != "EOF"; ++k) {
+                    const Token t = peek(k);
+                    if (t.getValue() == "(") {
+                        depth++;
+                        continue;
+                    }
+                    if (t.getValue() == ")") {
+                        if (depth == 0) {
+                            symbol->addChild(abstractdeclarator);
+                            return symbol;
+                        }
+                        depth--;
+                        continue;
+                    }
+                    if (depth == 0 && t.getValue() == ",") {
+                        symbol->addChild(abstractdeclarator);
+                        return symbol;
+                    }
+                    if (depth == 0 && t.getTokenType() == "identifier") {
+                        symbol->addChild(declarator);
+                        return symbol;
+                    }
                 }
             }
-
             return std::nullopt;
 
         case abstractdeclarator:
