@@ -13,6 +13,7 @@ private:
     int sourceIndex;
 public:
     Token(std::string type, std::string val, int line, int index);
+    Token(std::string val);
     Token();
 
     std::string getTokenType() const { return tokenType; }

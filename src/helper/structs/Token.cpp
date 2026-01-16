@@ -14,6 +14,8 @@ Token::Token(std::string type, std::string val, int line, int index)
 Token::Token()
     : tokenType(""), value(""), sourceLine(0), sourceIndex(0) {}
 
+Token::Token(std::string val)
+    : tokenType(""), value(std::move(val)), sourceLine(0), sourceIndex(0) {}
 
 std::ostream& operator<<(std::ostream& os, const Token& token) {
     os << "Token("
