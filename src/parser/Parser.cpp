@@ -461,7 +461,8 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
                     argStack.push_back(res.value());
                     continue;
                 } else {
-                    std::abort();
+                    noteError(peekExpr(0));
+                    return std::nullopt;
                 }
             }
 
@@ -511,7 +512,14 @@ int Parser::parse() {
         if (remSymbols.back()->getType() == expr) {
             Node::Ptr exprNode = remSymbols.back();
 
-            assert(peekSymbol(1)->getToken().has_value()); // follow token
+            if (!peekSymbol(1)->getToken().has_value()) {
+                const Token& next = remTokens.back();
+                std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                          << ":" << next.getSourceIndex() + 1
+                          << ": error: parse error\n";
+                dump_state();
+                return 1;
+            }
             remSymbols.pop_back();
 
             remTokensExpressionIndex = 0;
@@ -786,15 +794,6 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                 symbol->addChild(directdec_);
                 return symbol;
             }
-            if (next.getValue() == "[") {
-                symbol->addChild("[");
-                if (peek(1).getValue() != "]") {
-                    symbol->addChild(expr);
-                }
-                symbol->addChild("]");
-                symbol->addChild(directdec_);
-                return symbol;
-            }
             return symbol;
 
         case paramlist:
@@ -888,21 +887,12 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case abstractdeclarator_:
-            if (next.getValue() == "(" || next.getValue() == "[") {
+            if (next.getValue() == "(") {
                 symbol->addChild(directabstractdeclarator);
             }
             return symbol;
 
         case directabstractdeclarator:
-            if (next.getValue() == "[") {
-                symbol->addChild("[");
-                if (peek(1).getValue() != "]") {
-                    symbol->addChild(expr);
-                }
-                symbol->addChild("]");
-                symbol->addChild(directabstractdeclarator_);
-                return symbol;
-            }
             if (next.getValue() == "(" &&
                 (peek(1).getValue() == ")" || peek(1).getValue() == "void" ||
                  peek(1).getValue() == "char" || peek(1).getValue() == "int"  ||
@@ -928,15 +918,6 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                     symbol->addChild(paramlist);
                 }
                 symbol->addChild(")");
-                symbol->addChild(directabstractdeclarator_);
-                return symbol;
-            }
-            if (next.getValue() == "[") {
-                symbol->addChild("[");
-                if (peek(1).getValue() != "]") {
-                    symbol->addChild(expr);
-                }
-                symbol->addChild("]");
                 symbol->addChild(directabstractdeclarator_);
                 return symbol;
             }
