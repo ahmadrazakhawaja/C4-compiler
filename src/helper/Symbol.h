@@ -72,8 +72,37 @@
     X(assignment) \
     X(parenthesizedexpr) \
     X(Dummy) /*Dummy instances are overwritten later*/ \
-
-
+    X(FunctionDecl) \
+    X(VarDecl) \
+    X(Assign) \
+    X(If) \
+    X(While) \
+    X(Root) \
+    X(Return) \
+    X(Block) \
+    X(Identifier) \
+    X(Literal) \
+    X(BinaryOp) \
+    X(MemberAccess) \
+    X(PointerMemberAccess) \
+    X(Dereference) \
+    X(Reference) \
+    X(FunctionCall) \
+    X(Label) \
+    X(Terminal) \
+    X(Type) \
+    X(Else) \
+    X(Pointer) \
+    X(Parameters) \
+    X(Parameter) \
+    X(StructDecl) \
+    X(FunctionBody) \
+    X(Member) \
+    X(InstanceVar) \
+    X(Break) \
+    X(Goto) \
+    X(Continue) \
+    X(Declarator)
 
 //actual enum definition
 enum Symbol {
