@@ -992,6 +992,12 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
 
         case selectstatement_:
             if (next.getValue() == "else") {
+                if (peek(1).getValue() == "}" || peek(1).getValue() == "EOF") {
+                    if (!errorToken.has_value()) {
+                        errorToken = next;
+                    }
+                    return std::nullopt;
+                }
                 symbol->addChild("else");
                 symbol->addChild(statement);
             }
