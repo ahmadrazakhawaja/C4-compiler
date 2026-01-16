@@ -550,10 +550,10 @@ int Parser::parse() {
 
         auto changedNode = parseSymbol();
         if (!changedNode.has_value()) {
-            const Token& next = remTokens.back();
             if (!errorToken.has_value()) {
-                errorToken = next;
+                errorToken = remTokens.back();
             }
+            const Token& next = *errorToken;
             std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                       << ":" << next.getSourceIndex() + 1
                       << ": error: parse error\n";
@@ -623,7 +623,31 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             if (symbol->getToken()->getValue() == next.getValue()) {
                 symbol->setToken(next);
                 remTokens.pop_back();
+                lastConsumedToken = next;
+                if (symbol->getToken()->getValue() == "{" && pendingSwitchBodyOpen) {
+                    pendingSwitchBodyOpen = false;
+                }
+                if (symbol->getToken()->getValue() == ")" && remSymbols.size() >= 3) {
+                    const auto& maybeBrace = peekSymbol(1);
+                    const auto& maybeBody = peekSymbol(2);
+                    if (maybeBrace->getType() == terminal &&
+                        maybeBrace->getToken().has_value() &&
+                        maybeBrace->getToken()->getValue() == "{" &&
+                        maybeBody->getType() == switchbody) {
+                        pendingSwitchBodyOpen = true;
+                    }
+                }
                 return symbol;
+            }
+            if (pendingSwitchBodyOpen &&
+                symbol->getToken()->getValue() == "{" &&
+                lastConsumedToken.has_value()) {
+                const Token& prev = *lastConsumedToken;
+                Token missing("{", "{", prev.getSourceLine(),
+                              prev.getSourceIndex() + (int)prev.getValue().size());
+                if (!errorToken.has_value()) {
+                    errorToken = missing;
+                }
             }
             return std::nullopt;
         }
@@ -960,6 +984,9 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             } else if (next.getValue() == "if") {
                 symbol->addChild(selectstatement);
                 return symbol;
+            } else if (next.getValue() == "switch") {
+                symbol->addChild(switchstatement);
+                return symbol;
             } else if (next.getValue() == "while") {
                 symbol->addChild(iterstatement);
                 return symbol;
@@ -1002,6 +1029,44 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                 symbol->addChild(statement);
             }
             return symbol;
+
+        case switchstatement:
+            symbol->addChild("switch");
+            symbol->addChild("(");
+            symbol->addChild(expr);
+            symbol->addChild(")");
+            symbol->addChild("{");
+            symbol->addChild(switchbody);
+            symbol->addChild("}");
+            return symbol;
+
+        case switchbody:
+            if (next.getValue() == "}") return symbol;
+            symbol->addChild(casestatement);
+            symbol->addChild(switchbody_);
+            return symbol;
+
+        case switchbody_:
+            if (next.getValue() == "}") return symbol;
+            symbol->addChild(casestatement);
+            symbol->addChild(switchbody_);
+            return symbol;
+
+        case casestatement:
+            if (next.getValue() == "case") {
+                symbol->addChild("case");
+                symbol->addChild(expr);
+                symbol->addChild(":");
+                symbol->addChild(statement);
+                return symbol;
+            }
+            if (next.getValue() == "default") {
+                symbol->addChild("default");
+                symbol->addChild(":");
+                symbol->addChild(statement);
+                return symbol;
+            }
+            return std::nullopt;
 
         case iterstatement:
             symbol->addChild("while");
