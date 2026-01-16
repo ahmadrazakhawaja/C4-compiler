@@ -20,6 +20,7 @@ private:
 
 public:
     // Constructors
+    Node() = default;
     explicit Node(Symbol type);
     Node(Symbol type, const Token& tok);
     Node(Symbol type, std::optional<Token> tok);
@@ -46,6 +47,8 @@ public:
     void addChild(const Ptr& child);
     void addChild(Symbol sym);                  // convenience: adds Node(sym)
     void addChild(const std::string& terminal); // convenience: adds terminal node
+    Node::Ptr popLastChild();
+
 
     // Debug printing (small, not recursive)
     friend std::ostream& operator<<(std::ostream& os, const Node& node);

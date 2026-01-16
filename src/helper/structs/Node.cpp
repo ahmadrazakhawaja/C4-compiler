@@ -25,6 +25,12 @@ Node::Ptr Node::makeTerminal(const std::string& terminalValue) {
     return std::make_shared<Node>(terminalValue);
 }
 
+Node::Ptr Node::popLastChild() {
+        Node::Ptr last = children.back();
+        children.pop_back();
+        return last;
+}
+
 void Node::addChild(const Ptr& child) {
     children.push_back(child);
 }
