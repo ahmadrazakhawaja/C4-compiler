@@ -823,6 +823,15 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                 symbol->addChild(directdec_);
                 return symbol;
             }
+            if (next.getValue() == "[") {
+                symbol->addChild("[");
+                if (peek(1).getValue() != "]") {
+                    symbol->addChild(expr);
+                }
+                symbol->addChild("]");
+                symbol->addChild(directdec_);
+                return symbol;
+            }
             return symbol;
 
         case paramlist:
