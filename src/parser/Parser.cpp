@@ -431,6 +431,7 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
                 remRevExprSymbols.push_back(Node::makeTerminal(")"));
                 auto n = Node::make(op, opTok);
                 n->addChild(argStack.back());
+                argStack.pop_back();
                 argStack.push_back(n);
                 continue;
             }
@@ -776,6 +777,16 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                 symbol->addChild(paramlist);
                 symbol->addChild(")");
                 symbol->addChild(directdec_);
+                return symbol;
+            }
+            if (next.getValue() == "[") {
+                symbol->addChild("[");
+                if (peek(1).getValue() != "]") {
+                    symbol->addChild(expr);
+                }
+                symbol->addChild("]");
+                symbol->addChild(directdec_);
+                return symbol;
             }
             return symbol;
 
@@ -800,11 +811,31 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             if (peek(0).getValue() == "," || peek(0).getValue() == ")") return symbol;
             {
                 int depth = 0;
+                int paramDepth = 0;
                 bool sawIdentifier = false;
+                std::vector<bool> parenIsParam;
+                std::optional<Token> prev;
                 for (int k = 0; peek(k).getValue() != "EOF"; ++k) {
                     const Token t = peek(k);
                     if (t.getValue() == "(") {
+                        bool isParamList = false;
+                        if (prev.has_value()) {
+                            const std::string& prevVal = prev->getValue();
+                            if (prev->getTokenType() == "identifier" || prevVal == ")" || prevVal == "]") {
+                                isParamList = true;
+                            }
+                        }
+                        if (!isParamList) {
+                            const std::string& nextVal = peek(k + 1).getValue();
+                            if (nextVal == "void" || nextVal == "char" ||
+                                nextVal == "int"  || nextVal == "struct") {
+                                isParamList = true;
+                            }
+                        }
+                        parenIsParam.push_back(isParamList);
+                        if (isParamList) paramDepth++;
                         depth++;
+                        prev = t;
                         continue;
                     }
                     if (t.getValue() == ")") {
@@ -817,6 +848,11 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                             return symbol;
                         }
                         depth--;
+                        if (!parenIsParam.empty()) {
+                            if (parenIsParam.back()) paramDepth--;
+                            parenIsParam.pop_back();
+                        }
+                        prev = t;
                         continue;
                     }
                     if (depth == 0 && t.getValue() == ",") {
@@ -827,9 +863,10 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                         }
                         return symbol;
                     }
-                    if (t.getTokenType() == "identifier") {
+                    if (t.getTokenType() == "identifier" && paramDepth == 0) {
                         sawIdentifier = true;
                     }
+                    prev = t;
                 }
             }
             return std::nullopt;
@@ -844,12 +881,21 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case abstractdeclarator_:
-            if (next.getValue() == "(") {
+            if (next.getValue() == "(" || next.getValue() == "[") {
                 symbol->addChild(directabstractdeclarator);
             }
             return symbol;
 
         case directabstractdeclarator:
+            if (next.getValue() == "[") {
+                symbol->addChild("[");
+                if (peek(1).getValue() != "]") {
+                    symbol->addChild(expr);
+                }
+                symbol->addChild("]");
+                symbol->addChild(directabstractdeclarator_);
+                return symbol;
+            }
             if (next.getValue() == "(" &&
                 (peek(1).getValue() == "void" || peek(1).getValue() == "char" ||
                  peek(1).getValue() == "int"  || peek(1).getValue() == "struct")) {
@@ -871,6 +917,16 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                 symbol->addChild(paramlist);
                 symbol->addChild(")");
                 symbol->addChild(directabstractdeclarator_);
+                return symbol;
+            }
+            if (next.getValue() == "[") {
+                symbol->addChild("[");
+                if (peek(1).getValue() != "]") {
+                    symbol->addChild(expr);
+                }
+                symbol->addChild("]");
+                symbol->addChild(directabstractdeclarator_);
+                return symbol;
             }
             return symbol;
 
