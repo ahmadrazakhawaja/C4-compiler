@@ -534,7 +534,7 @@ int Parser::parse() {
             }
 
             if (!res.has_value()) {
-                const Token& next = errorToken.has_value() ? *errorToken : remTokens.back();
+                const Token& next = errorToken.has_value() ? *errorToken : peekExpr(0);
                 std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                           << ":" << next.getSourceIndex() + 1
                           << ": error: parse error\n";
@@ -585,6 +585,11 @@ int Parser::parse() {
 
     if (errorToken.has_value()) {
         const Token& next = *errorToken;
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else if (!remTokens.empty()) {
+        const Token& next = remTokens.back();
         std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                   << ":" << next.getSourceIndex() + 1
                   << ": error: parse error\n";

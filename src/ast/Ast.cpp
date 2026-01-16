@@ -456,14 +456,26 @@ static void collectParamListTail(const Node::Ptr& node, std::vector<ParamDecl>& 
 
 static void collectDirectDecSuffixes(const Node::Ptr& node, std::vector<ParamList>& out) {
     if (!node || node->getChildren().empty()) return;
-    out.push_back(buildParamList(node->getChildren().at(1)));
-    collectDirectDecSuffixes(node->getChildren().at(3), out);
+    const auto& kids = node->getChildren();
+    if (kids.at(1)->getType() == paramlist) {
+        out.push_back(buildParamList(kids.at(1)));
+        collectDirectDecSuffixes(kids.at(3), out);
+    } else {
+        out.push_back(ParamList{});
+        collectDirectDecSuffixes(kids.at(2), out);
+    }
 }
 
 static void collectDirectAbstractSuffixes(const Node::Ptr& node, std::vector<ParamList>& out) {
     if (!node || node->getChildren().empty()) return;
-    out.push_back(buildParamList(node->getChildren().at(1)));
-    collectDirectAbstractSuffixes(node->getChildren().at(3), out);
+    const auto& kids = node->getChildren();
+    if (kids.at(1)->getType() == paramlist) {
+        out.push_back(buildParamList(kids.at(1)));
+        collectDirectAbstractSuffixes(kids.at(3), out);
+    } else {
+        out.push_back(ParamList{});
+        collectDirectAbstractSuffixes(kids.at(2), out);
+    }
 }
 
 static int countPointerDepth(const Node::Ptr& node) {
@@ -539,17 +551,22 @@ static Declarator buildDeclarator(const Node::Ptr& node) {
 static DirectAbstractDeclarator buildDirectAbstractDeclarator(const Node::Ptr& node) {
     DirectAbstractDeclarator direct;
     const auto& kids = node->getChildren();
-    if (kids.size() < 4) return direct;
+    if (kids.size() < 3) return direct;
 
-    if (kids.at(1)->getType() == paramlist) {
+    if (kids.at(1)->getType() == paramlist || isTerminalValue(kids.at(1), ")")) {
         direct.kind = DirectAbstractDeclarator::Kind::ParamList;
-        direct.firstParamList = buildParamList(kids.at(1));
+        if (kids.at(1)->getType() == paramlist) {
+            direct.firstParamList = buildParamList(kids.at(1));
+        }
     } else {
         direct.kind = DirectAbstractDeclarator::Kind::Nested;
         direct.nested = std::make_shared<AbstractDeclarator>(buildAbstractDeclarator(kids.at(1)));
     }
 
-    collectDirectAbstractSuffixes(kids.at(3), direct.suffixes);
+    const size_t suffixIndex = kids.size() > 3 ? 3 : 2;
+    if (suffixIndex < kids.size()) {
+        collectDirectAbstractSuffixes(kids.at(suffixIndex), direct.suffixes);
+    }
     return direct;
 }
 
