@@ -263,6 +263,11 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
     std::vector<OpEntry> opStack;
     std::vector<Node::Ptr> argStack;
     bool isExpectArg = true;
+    auto noteError = [&](const Token& tok) {
+        if (!errorToken.has_value()) {
+            errorToken = tok;
+        }
+    };
 
     while (true) {
         Token tok = peekExpr(0);
@@ -274,32 +279,47 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
             }
             break;
         }
-        if (tok.getValue() == "EOF") return std::nullopt;
+        if (tok.getValue() == "EOF") {
+            noteError(tok);
+            return std::nullopt;
+        }
 
         // literals / identifiers
         if (tok.getTokenType() == "string-literal") {
-            if (!isExpectArg) return std::nullopt;
+            if (!isExpectArg) {
+                noteError(tok);
+                return std::nullopt;
+            }
             remTokensExpressionIndex++;
             remRevExprSymbols.push_back(Node::make(stringliteral));
             argStack.push_back(Node::make(stringliteral, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "character-constant") {
-            if (!isExpectArg) return std::nullopt;
+            if (!isExpectArg) {
+                noteError(tok);
+                return std::nullopt;
+            }
             remTokensExpressionIndex++;
             remRevExprSymbols.push_back(Node::make(charconst));
             argStack.push_back(Node::make(charconst, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "decimal-constant") {
-            if (!isExpectArg) return std::nullopt;
+            if (!isExpectArg) {
+                noteError(tok);
+                return std::nullopt;
+            }
             remTokensExpressionIndex++;
             remRevExprSymbols.push_back(Node::make(decimalconst));
             argStack.push_back(Node::make(decimalconst, tok));
             isExpectArg = false;
             continue;
         } else if (tok.getTokenType() == "identifier") {
-            if (!isExpectArg) return std::nullopt;
+            if (!isExpectArg) {
+                noteError(tok);
+                return std::nullopt;
+            }
             remTokensExpressionIndex++;
             remRevExprSymbols.push_back(Node::make(id));
             argStack.push_back(Node::make(id, tok));
@@ -334,7 +354,10 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
                         Token t = peekExpr(0);
                         if (t.getValue() == "(") open++;
                         else if (t.getValue() == ")") open--;
-                        else if (t.getValue() == "EOF") return std::nullopt;
+                        else if (t.getValue() == "EOF") {
+                            noteError(t);
+                            return std::nullopt;
+                        }
                     }
 
                     // consume ")"
@@ -347,7 +370,10 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
 
         // operators
         auto maybeOp = toSymbol(tok.getValue(), isExpectArg);
-        if (!maybeOp.has_value()) return std::nullopt;
+        if (!maybeOp.has_value()) {
+            noteError(tok);
+            return std::nullopt;
+        }
 
         remTokensExpressionIndex++;
         remRevExprSymbols.push_back(Node::makeTerminal(tok.getValue()));
@@ -360,7 +386,10 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
         while (op != parenthesizedexpr && !opStack.empty() &&
                (opPrec(op) < opPrec(opStack.back().op) ||
                 (!isRightAssociative(op) && opPrec(op) == opPrec(opStack.back().op)))) {
-            if (reduce(opStack, argStack)) return std::nullopt;
+            if (reduce(opStack, argStack)) {
+                noteError(tok);
+                return std::nullopt;
+            }
         }
 
         if (op == parenthesizedexpr) {
@@ -394,7 +423,10 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
             while (true) {
                 args++;
                 auto res = evilShuntingYard(")", ",", true);
-                if (!res.has_value()) return std::nullopt;
+                if (!res.has_value()) {
+                    noteError(peekExpr(0));
+                    return std::nullopt;
+                }
 
                 if (peekExpr(0).getValue() == ")") {
                     remTokensExpressionIndex++;
@@ -423,7 +455,10 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
 
         if (op == ternary) {
             auto res = evilShuntingYard(":", false);
-            if (!res.has_value()) return std::nullopt;
+            if (!res.has_value()) {
+                noteError(peekExpr(0));
+                return std::nullopt;
+            }
             argStack.push_back(res.value());
             opStack.push_back(OpEntry{op, opTok});
             continue;
@@ -433,7 +468,10 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
     }
 
     while (!opStack.empty()) {
-        if (reduce(opStack, argStack)) return std::nullopt;
+        if (reduce(opStack, argStack)) {
+            noteError(peekExpr(0));
+            return std::nullopt;
+        }
     }
 
     if (opStack.empty() && argStack.size() == 1) return argStack.back();
@@ -444,6 +482,7 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
 // parse()
 // -------------------------
 int Parser::parse() {
+    errorToken.reset();
     while (!remSymbols.empty() && !remTokens.empty()) {
 
         // expression handling
@@ -465,7 +504,7 @@ int Parser::parse() {
             }
 
             if (!res.has_value()) {
-                const Token& next = remTokens.back();
+                const Token& next = errorToken.has_value() ? *errorToken : remTokens.back();
                 std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                           << ":" << next.getSourceIndex() + 1
                           << ": error: parse error\n";
@@ -482,6 +521,9 @@ int Parser::parse() {
         auto changedNode = parseSymbol();
         if (!changedNode.has_value()) {
             const Token& next = remTokens.back();
+            if (!errorToken.has_value()) {
+                errorToken = next;
+            }
             std::cerr << parseFileName << ":" << next.getSourceLine() + 1
                       << ":" << next.getSourceIndex() + 1
                       << ": error: parse error\n";
@@ -503,13 +545,27 @@ int Parser::parse() {
         }
     }
 
+    std::optional<Token> eofToken;
     if (!remTokens.empty() && remTokens.back().getTokenType() == "EOF") {
+        eofToken = remTokens.back();
         remTokens.pop_back();
     }
 
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
-    std::cerr << parseFileName << ": error: parse error\n";
+    if (errorToken.has_value()) {
+        const Token& next = *errorToken;
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else if (eofToken.has_value()) {
+        const Token& next = *eofToken;
+        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
+                  << ":" << next.getSourceIndex() + 1
+                  << ": error: parse error\n";
+    } else {
+        std::cerr << parseFileName << ": error: parse error\n";
+    }
     dump_state();
     return 1;
 }
