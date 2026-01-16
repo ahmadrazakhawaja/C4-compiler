@@ -800,6 +800,7 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             if (peek(0).getValue() == "," || peek(0).getValue() == ")") return symbol;
             {
                 int depth = 0;
+                bool sawIdentifier = false;
                 for (int k = 0; peek(k).getValue() != "EOF"; ++k) {
                     const Token t = peek(k);
                     if (t.getValue() == "(") {
@@ -808,19 +809,26 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                     }
                     if (t.getValue() == ")") {
                         if (depth == 0) {
-                            symbol->addChild(abstractdeclarator);
+                            if (sawIdentifier) {
+                                symbol->addChild(declarator);
+                            } else {
+                                symbol->addChild(abstractdeclarator);
+                            }
                             return symbol;
                         }
                         depth--;
                         continue;
                     }
                     if (depth == 0 && t.getValue() == ",") {
-                        symbol->addChild(abstractdeclarator);
+                        if (sawIdentifier) {
+                            symbol->addChild(declarator);
+                        } else {
+                            symbol->addChild(abstractdeclarator);
+                        }
                         return symbol;
                     }
-                    if (depth == 0 && t.getTokenType() == "identifier") {
-                        symbol->addChild(declarator);
-                        return symbol;
+                    if (t.getTokenType() == "identifier") {
+                        sawIdentifier = true;
                     }
                 }
             }
