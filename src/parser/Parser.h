@@ -31,7 +31,6 @@ private:
     std::string parseFileName;
     std::vector<Token> remTokens;
     std::vector<Node::Ptr> remSymbols;
-    std::optional<Token> errorToken;
 
     int remTokensExpressionIndex = 0;
     std::vector<Node::Ptr> remRevExprSymbols;
