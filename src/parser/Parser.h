@@ -23,6 +23,7 @@ public:
     const std::vector<Token>& getRemTokens() const { return remTokens; }
     const std::vector<Node::Ptr>& getRemSymbols() const { return remSymbols; }
     Node::Ptr getParseTreeRoot() const { return parseTreeRoot; }
+    void setParseTreeRoot(const Node::Ptr &newTree);
 
     std::optional<Node::Ptr> evilShuntingYard(std::string limit, std::string limit2, bool isOutermost);
     std::optional<Node::Ptr> evilShuntingYard(std::string limit, bool isOutermost);

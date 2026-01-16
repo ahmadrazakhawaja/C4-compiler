@@ -9,6 +9,8 @@
 #include "../helper/Utils.h"
 #include "../lexer/Tokenizer.h"
 #include "../prettyPrint/prettyPrint.h"
+#include "../codeGenerator/CodeGenerator.h"
+#include <unordered_set>
 
 // -------------------------
 // Debug helpers (shallow)
@@ -62,6 +64,10 @@ Token Parser::peek(int k) {
     return remTokens.at(remTokens.size() - k - 1);
 }
 
+void Parser::setParseTreeRoot(const Node::Ptr &newTree) {
+    parseTreeRoot = newTree;
+}
+
 // -------------------------
 // Static run
 // -------------------------
@@ -88,7 +94,21 @@ void Parser::run(const std::string& fileName, const std::string& path, bool isVe
         opt.showTokenValue = true;
 
         std::cout << "\n=== Parse Tree ===\n";
-        prettyPrint::printTree(parser.getParseTreeRoot(), std::cout, opt);
+        prettyPrint::printTree(parser.getParseTreeRoot(), std::cout, opt); 
+     
+        std::cout << "\n=== Reduced Parse Tree ===\n"; 
+        Node::Ptr reducedRoot = prettyPrint::reduceTree(parser.getParseTreeRoot());
+        prettyPrint::printTree(reducedRoot, std::cout, opt);
+     
+        std::cout << "\n=== Semantical Analysis ===\n";  
+        prettyPrint::analyzeSemantics(reducedRoot);
+        Node::Ptr ast = prettyPrint::buildAST(reducedRoot);
+     
+        std::cout << "\n=== Abstract Syntax Tree ===\n";
+        prettyPrint::printTree(ast, std::cout, opt);
+
+        std::cout << "\n=== Print Syntax ===\n"; 
+        CodeGenerator::printCode(ast);
     }
 }
 
