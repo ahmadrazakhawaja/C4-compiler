@@ -188,6 +188,8 @@ static std::optional<Symbol> toSymbol(const std::string& str, bool isExpectArg) 
     if (str == "->") return isExpectArg ? std::nullopt : std::make_optional(pointermemberaccess);
     if (str == "&") return isExpectArg ? std::make_optional(reference) : std::nullopt;
     if (str == "*") return isExpectArg ? std::make_optional(dereference) : std::make_optional(product);
+    if (str == "/") return isExpectArg ? std::nullopt : std::make_optional(product);
+    if (str == "%") return isExpectArg ? std::nullopt : std::make_optional(product);
     if (str == "++") return isExpectArg ? std::make_optional(preincrement) : std::make_optional(postincrement);
     if (str == "--") return isExpectArg ? std::make_optional(predecrement) : std::make_optional(postdecrement);
     if (str == "-") return isExpectArg ? std::make_optional(negationarithmetic) : std::make_optional(difference);
@@ -195,6 +197,9 @@ static std::optional<Symbol> toSymbol(const std::string& str, bool isExpectArg) 
     if (str == "sizeof") return isExpectArg ? std::make_optional(sizeoperator) : std::nullopt;
     if (str == "+") return isExpectArg ? std::nullopt : std::make_optional(sum);
     if (str == "<") return isExpectArg ? std::nullopt : std::make_optional(comparison);
+    if (str == ">") return isExpectArg ? std::nullopt : std::make_optional(comparison);
+    if (str == "<=") return isExpectArg ? std::nullopt : std::make_optional(comparison);
+    if (str == ">=") return isExpectArg ? std::nullopt : std::make_optional(comparison);
     if (str == "==") return isExpectArg ? std::nullopt : std::make_optional(equality);
     if (str == "!=") return isExpectArg ? std::nullopt : std::make_optional(inequality);
     if (str == "&&") return isExpectArg ? std::nullopt : std::make_optional(conjunction);
@@ -774,7 +779,9 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
         case directdec_:
             if (next.getValue() == "(") {
                 symbol->addChild("(");
-                symbol->addChild(paramlist);
+                if (peek(1).getValue() != ")") {
+                    symbol->addChild(paramlist);
+                }
                 symbol->addChild(")");
                 symbol->addChild(directdec_);
                 return symbol;
@@ -897,10 +904,13 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
                 return symbol;
             }
             if (next.getValue() == "(" &&
-                (peek(1).getValue() == "void" || peek(1).getValue() == "char" ||
-                 peek(1).getValue() == "int"  || peek(1).getValue() == "struct")) {
+                (peek(1).getValue() == ")" || peek(1).getValue() == "void" ||
+                 peek(1).getValue() == "char" || peek(1).getValue() == "int"  ||
+                 peek(1).getValue() == "struct")) {
                 symbol->addChild("(");
-                symbol->addChild(paramlist);
+                if (peek(1).getValue() != ")") {
+                    symbol->addChild(paramlist);
+                }
                 symbol->addChild(")");
                 symbol->addChild(directabstractdeclarator_);
                 return symbol;
@@ -914,7 +924,9 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
         case directabstractdeclarator_:
             if (next.getValue() == "(") {
                 symbol->addChild("(");
-                symbol->addChild(paramlist);
+                if (peek(1).getValue() != ")") {
+                    symbol->addChild(paramlist);
+                }
                 symbol->addChild(")");
                 symbol->addChild(directabstractdeclarator_);
                 return symbol;
