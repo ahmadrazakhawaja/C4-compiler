@@ -40,6 +40,7 @@ static SourceLocation tokenLocation(const Node::Ptr& node) {
 
 static std::string renderTypeInline(const TypeSpec& type);
 static std::string renderStructTypeInline(const StructType& st, int indentLevel);
+static std::string renderExpr(const Node::Ptr& node);
 
 static RenderResult renderDeclarator(const Declarator& decl);
 static RenderResult renderAbstractDeclarator(const AbstractDeclarator& decl);
