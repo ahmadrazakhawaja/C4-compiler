@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
         std::string fullPath = argv[2];
         std::string file = fullPath;
 
-        bool ok = Parser::run(file, fullPath, false);
+        bool ok = Parser::run(file, fullPath, false, false);
         return ok ? 0 : 1;
     }
 
@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
         std::string fullPath = argv[2];
         std::string file = fullPath;
 
-        bool ok = Parser::run(file, fullPath, true);
+        bool ok = Parser::run(file, fullPath, true, false);
         return ok ? 0 : 1;
     }
 

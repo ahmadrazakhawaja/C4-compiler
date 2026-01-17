@@ -69,7 +69,7 @@ Token Parser::peek(int k) {
 // -------------------------
 // Static run
 // -------------------------
-bool Parser::run(const std::string& fileName, const std::string& path, bool isVerbose) {
+bool Parser::run(const std::string& fileName, const std::string& path, bool isVerbose, bool runSemantic) {
     std::string sourceCode;
     try {
         sourceCode = Utils::readSourceCode(path);
@@ -91,8 +91,10 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
     Parser parser(tokens, isVerbose, fileName);
 
     if (!parser.parse()) {
-        auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
-        if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
+        if (runSemantic) {
+            auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
+            if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
+        }
 
         std::cout << "Successfully parsed " << fileName << "\n";
         prettyPrint::Options opt;

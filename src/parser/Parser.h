@@ -10,7 +10,7 @@
 class Parser {
 public:
     Parser(std::vector<Token> tokens, bool isVerbose, std::string fileName = {});
-    static bool run(const std::string& fileName, const std::string& path, bool isVerbose);
+    static bool run(const std::string& fileName, const std::string& path, bool isVerbose, bool runSemantic = true);
 
     Node::Ptr peekSymbol(int k);
     Token peek(int k);
