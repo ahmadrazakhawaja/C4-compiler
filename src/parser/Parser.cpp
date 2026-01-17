@@ -1050,7 +1050,7 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             if (next.getValue() == "else") {
                 if (peek(1).getValue() == "}" || peek(1).getValue() == "EOF") {
                     if (!errorToken.has_value()) {
-                        errorToken = next;
+                        errorToken = peek(1);
                     }
                     return std::nullopt;
                 }
