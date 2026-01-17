@@ -462,7 +462,8 @@ static void collectDirectDecSuffixes(const Node::Ptr& node, std::vector<ParamLis
         collectDirectDecSuffixes(kids.at(3), out);
     } else {
         out.push_back(ParamList{});
-        collectDirectDecSuffixes(kids.at(2), out);
+        const size_t nextIndex = isTerminalValue(kids.at(0), "[") && kids.size() > 3 ? 3 : 2;
+        collectDirectDecSuffixes(kids.at(nextIndex), out);
     }
 }
 
@@ -474,7 +475,8 @@ static void collectDirectAbstractSuffixes(const Node::Ptr& node, std::vector<Par
         collectDirectAbstractSuffixes(kids.at(3), out);
     } else {
         out.push_back(ParamList{});
-        collectDirectAbstractSuffixes(kids.at(2), out);
+        const size_t nextIndex = isTerminalValue(kids.at(0), "[") && kids.size() > 3 ? 3 : 2;
+        collectDirectAbstractSuffixes(kids.at(nextIndex), out);
     }
 }
 
@@ -551,7 +553,16 @@ static Declarator buildDeclarator(const Node::Ptr& node) {
 static DirectAbstractDeclarator buildDirectAbstractDeclarator(const Node::Ptr& node) {
     DirectAbstractDeclarator direct;
     const auto& kids = node->getChildren();
-    if (kids.size() < 3) return direct;
+    if (kids.size() < 2) return direct;
+
+    if (isTerminalValue(kids.at(0), "[")) {
+        direct.kind = DirectAbstractDeclarator::Kind::ParamList;
+        const size_t suffixIndex = kids.size() > 3 ? 3 : 2;
+        if (suffixIndex < kids.size()) {
+            collectDirectAbstractSuffixes(kids.at(suffixIndex), direct.suffixes);
+        }
+        return direct;
+    }
 
     if (kids.at(1)->getType() == paramlist || isTerminalValue(kids.at(1), ")")) {
         direct.kind = DirectAbstractDeclarator::Kind::ParamList;

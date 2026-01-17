@@ -925,12 +925,21 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case abstractdeclarator_:
-            if (next.getValue() == "(") {
+            if (next.getValue() == "(" || next.getValue() == "[") {
                 symbol->addChild(directabstractdeclarator);
             }
             return symbol;
 
         case directabstractdeclarator:
+            if (next.getValue() == "[") {
+                symbol->addChild("[");
+                if (peek(1).getValue() != "]") {
+                    symbol->addChild(expr);
+                }
+                symbol->addChild("]");
+                symbol->addChild(directabstractdeclarator_);
+                return symbol;
+            }
             if (next.getValue() == "(" &&
                 (peek(1).getValue() == ")" || peek(1).getValue() == "void" ||
                  peek(1).getValue() == "char" || peek(1).getValue() == "int"  ||
@@ -950,6 +959,15 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case directabstractdeclarator_:
+            if (next.getValue() == "[") {
+                symbol->addChild("[");
+                if (peek(1).getValue() != "]") {
+                    symbol->addChild(expr);
+                }
+                symbol->addChild("]");
+                symbol->addChild(directabstractdeclarator_);
+                return symbol;
+            }
             if (next.getValue() == "(") {
                 symbol->addChild("(");
                 if (peek(1).getValue() != ")") {
