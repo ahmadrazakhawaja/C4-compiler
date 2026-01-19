@@ -307,6 +307,9 @@ private:
     void analyzeDecl(const ast::Decl& decl) {
         Type base = typeFromTypeSpec(decl.type);
         if (!decl.declarator) {
+            if (decl.type.kind != ast::TypeSpec::Kind::Struct) {
+                report(decl.type.loc, "declaration without declarator");
+            }
             return;
         }
 
@@ -380,7 +383,7 @@ private:
 
         pushScope();
         addParameters(func.declarator, funcType);
-        analyzeCompound(func.body);
+        analyzeCompoundInCurrentScope(func.body);
         popScope();
 
         for (const auto& gotoPair : pendingGotos) {
@@ -399,15 +402,19 @@ private:
         size_t paramIndex = 0;
         for (const auto* param : params) {
             if (paramIndex >= funcType.params.size()) break;
+            std::string name;
+            SourceLocation loc;
+            bool hasName = false;
             if (param->declarator) {
-                std::string name;
-                SourceLocation loc;
-                if (extractDeclaratorName(*param->declarator, name, loc)) {
-                    SymbolInfo info;
-                    info.type = funcType.params.at(paramIndex);
-                    info.loc = loc;
-                    declare(name, info);
-                }
+                hasName = extractDeclaratorName(*param->declarator, name, loc);
+            }
+            if (!hasName) {
+                report(param->type.loc, "parameter name missing");
+            } else {
+                SymbolInfo info;
+                info.type = funcType.params.at(paramIndex);
+                info.loc = loc;
+                declare(name, info);
             }
             paramIndex++;
         }
@@ -431,6 +438,12 @@ private:
             analyzeStatement(*item);
         }
         popScope();
+    }
+
+    void analyzeCompoundInCurrentScope(const ast::StmtCompound& compound) {
+        for (const auto& item : compound.items) {
+            analyzeStatement(*item);
+        }
     }
 
     void analyzeStatement(const ast::Statement& stmt) {
