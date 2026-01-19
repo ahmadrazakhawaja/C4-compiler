@@ -68,6 +68,11 @@ static bool typeEqual(const Type& a, const Type& b) {
     }
 }
 
+static bool valueCompatible(const Type& target, const Type& source) {
+    if (isInteger(target) && isInteger(source)) return true;
+    return typeEqual(target, source);
+}
+
 struct SymbolInfo {
     Type type;
     bool isFunction = false;
@@ -476,7 +481,7 @@ private:
                     if (isStruct(value.type)) {
                         report(arg.loc, "returning struct values is not supported");
                     }
-                    if (!typeEqual(currentReturnType, value.type) &&
+                    if (!valueCompatible(currentReturnType, value.type) &&
                         !(isPointer(currentReturnType) && value.isNullPtrConst)) {
                         report(arg.loc, "return type mismatch");
                     }
@@ -514,7 +519,7 @@ private:
                 info.type = makePointer(makeChar());
                 return info;
             case charconst:
-                info.type = makeChar();
+                info.type = makeInt();
                 return info;
             case decimalconst: {
                 info.type = makeInt();
@@ -560,7 +565,7 @@ private:
                     ExprInfo arg = analyzeExpr(node->getChildren().at(i));
                     if (i - 1 < funcType.params.size()) {
                         const Type& paramType = funcType.params[i - 1];
-                        if (!typeEqual(paramType, arg.type) &&
+                        if (!valueCompatible(paramType, arg.type) &&
                             !(isPointer(paramType) && arg.isNullPtrConst)) {
                             report(info.loc, "argument type mismatch");
                         }
@@ -753,8 +758,12 @@ private:
                 auto tval = analyzeExpr(node->getChildren().at(1));
                 auto fval = analyzeExpr(node->getChildren().at(2));
                 if (!isScalar(cond.type)) report(info.loc, "ternary condition not scalar");
-                if (typeEqual(tval.type, fval.type)) {
-                    info.type = tval.type;
+                if (valueCompatible(tval.type, fval.type) && valueCompatible(fval.type, tval.type)) {
+                    if (isInteger(tval.type) && isInteger(fval.type)) {
+                        info.type = makeInt();
+                    } else {
+                        info.type = tval.type;
+                    }
                     return info;
                 }
                 if (isPointer(tval.type) && fval.isNullPtrConst) {
@@ -778,7 +787,7 @@ private:
                 if (isStruct(lhs.type) || isStruct(rhs.type)) {
                     report(info.loc, "assignments of struct type are not supported");
                 }
-                if (!typeEqual(lhs.type, rhs.type) &&
+                if (!valueCompatible(lhs.type, rhs.type) &&
                     !(isPointer(lhs.type) && rhs.isNullPtrConst)) {
                     report(info.loc, "assignment type mismatch");
                 }
