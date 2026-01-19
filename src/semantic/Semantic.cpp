@@ -201,8 +201,12 @@ private:
 
             structs[name] = std::move(info);
         } else {
-            if (structs.find(name) == structs.end()) {
-                report(spec.loc, "use of undeclared struct '" + name + "'");
+            auto it = structs.find(name);
+            if (it == structs.end()) {
+                StructInfo info;
+                info.defined = false;
+                info.loc = spec.loc;
+                structs.emplace(name, std::move(info));
             }
         }
 
@@ -800,8 +804,14 @@ private:
         }
         std::string name = skids.at(1)->getToken()->getValue();
         auto it = structs.find(name);
-        if (it == structs.end() || !it->second.defined) {
-            report(loc, "use of undeclared struct '" + name + "'");
+        if (it == structs.end()) {
+            StructInfo info;
+            info.defined = false;
+            info.loc = loc;
+            it = structs.emplace(name, std::move(info)).first;
+        }
+        if (!it->second.defined) {
+            report(loc, "use of incomplete struct '" + name + "'");
         }
     }
 };
