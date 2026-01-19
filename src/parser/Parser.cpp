@@ -1042,12 +1042,24 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             symbol->addChild("(");
             symbol->addChild(expr);
             symbol->addChild(")");
+            if (peek(0).getValue() == ";") {
+                if (!errorToken.has_value()) {
+                    errorToken = peek(0);
+                }
+                return std::nullopt;
+            }
             symbol->addChild(statement);
             symbol->addChild(selectstatement_);
             return symbol;
 
         case selectstatement_:
             if (next.getValue() == "else") {
+                if (peek(1).getValue() == ";") {
+                    if (!errorToken.has_value()) {
+                        errorToken = peek(1);
+                    }
+                    return std::nullopt;
+                }
                 if (peek(1).getValue() == "}" || peek(1).getValue() == "EOF") {
                     if (!errorToken.has_value()) {
                         errorToken = peek(1);
@@ -1132,10 +1144,6 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return std::nullopt;
 
         case exprstatement:
-            if (next.getValue() == ";") {
-                symbol->addChild(";");
-                return symbol;
-            }
             symbol->addChild(expr);
             symbol->addChild(";");
             return symbol;
