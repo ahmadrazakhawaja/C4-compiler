@@ -43,6 +43,14 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if(argc >= 3 && std::string(argv[1]) == "--pretty") {
+        std::string file = argv[2];
+        std::string fullPath = "test/lexer/" + file;
+
+        Parser::run(file, fullPath, false);
+        return 0;
+    }
+
     // --- normaler Compiler-Code ---
     std::cout << "Normal compiler mode\n";
 
