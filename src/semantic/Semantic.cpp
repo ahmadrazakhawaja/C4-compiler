@@ -73,6 +73,14 @@ static bool valueCompatible(const Type& target, const Type& source) {
     return typeEqual(target, source);
 }
 
+static bool isVoidOnlyParamList(const ast::ParamList& plist) {
+    if (plist.isArray) return false;
+    if (plist.params.size() != 1) return false;
+    const auto& p = plist.params[0];
+    if (p.declarator || p.abstractDeclarator) return false;
+    return p.type.kind == ast::TypeSpec::Kind::Builtin && p.type.builtin == "void";
+}
+
 struct SymbolInfo {
     Type type;
     bool isFunction = false;
@@ -235,6 +243,10 @@ private:
                 current = makePointer(current);
                 continue;
             }
+            if (isVoidOnlyParamList(plist)) {
+                current = makeFunction(current, {});
+                continue;
+            }
             std::vector<Type> paramTypes;
             for (const auto& param : plist.params) {
                 Type paramType = typeFromTypeSpec(param.type);
@@ -257,10 +269,10 @@ private:
         }
 
         if (decl.direct.kind == ast::DirectDeclarator::Kind::Nested) {
-            current = applySuffixes(current, decl.direct.params);
             if (decl.direct.nested) {
                 current = applyDeclarator(current, *decl.direct.nested);
             }
+            current = applySuffixes(current, decl.direct.params);
             return current;
         }
 
@@ -420,9 +432,18 @@ private:
         }
     }
 
+    static bool isVoidOnlyParamListDecl(const ast::ParamDecl& p) {
+        return !p.declarator && !p.abstractDeclarator &&
+            p.type.kind == ast::TypeSpec::Kind::Builtin && p.type.builtin == "void";
+    }
+
     static void collectParamDecls(const ast::Declarator& decl, std::vector<const ast::ParamDecl*>& out) {
         if (!decl.direct.params.empty()) {
-            for (const auto& param : decl.direct.params.front().params) {
+            const auto& plist = decl.direct.params.front();
+            if (plist.params.size() == 1 && isVoidOnlyParamListDecl(plist.params[0])) {
+                return;
+            }
+            for (const auto& param : plist.params) {
                 out.push_back(&param);
             }
             return;
