@@ -39,6 +39,7 @@ static SourceLocation tokenLocation(const Node::Ptr& node) {
 }
 
 static std::string renderTypeInline(const TypeSpec& type);
+static std::string renderExpr(const Node::Ptr& node);
 
 static RenderResult renderDeclarator(const Declarator& decl);
 static RenderResult renderAbstractDeclarator(const AbstractDeclarator& decl);
@@ -78,7 +79,15 @@ static RenderResult renderDirectDeclaratorCore(const DirectDeclarator& direct) {
 
     if (!direct.params.empty()) {
         for (const auto& params : direct.params) {
-            res.text += "(" + renderParamList(params) + ")";
+            if (params.isArray) {
+                res.text += "[";
+                if (params.arraySize) {
+                    res.text += renderExpr(params.arraySize->root);
+                }
+                res.text += "]";
+            } else {
+                res.text += "(" + renderParamList(params) + ")";
+            }
         }
         res.isAtomic = false;
     }
@@ -110,7 +119,15 @@ static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDecla
 
     if (!direct.suffixes.empty()) {
         for (const auto& params : direct.suffixes) {
-            res.text += "(" + renderParamList(params) + ")";
+            if (params.isArray) {
+                res.text += "[";
+                if (params.arraySize) {
+                    res.text += renderExpr(params.arraySize->root);
+                }
+                res.text += "]";
+            } else {
+                res.text += "(" + renderParamList(params) + ")";
+            }
         }
     }
     res.isAtomic = false;
@@ -454,27 +471,43 @@ static void collectParamListTail(const Node::Ptr& node, std::vector<ParamDecl>& 
     collectParamListTail(node->getChildren().at(2), out);
 }
 
+static ParamList buildArraySuffix(const Node::Ptr& node) {
+    ParamList list;
+    list.isArray = true;
+    const auto& kids = node->getChildren();
+    if (kids.size() > 3 && kids.at(1)->getType() == expr && !kids.at(1)->getChildren().empty()) {
+        list.arraySize = Expr{kids.at(1)->getChildren().at(0)};
+    }
+    return list;
+}
+
 static void collectDirectDecSuffixes(const Node::Ptr& node, std::vector<ParamList>& out) {
     if (!node || node->getChildren().empty()) return;
     const auto& kids = node->getChildren();
-    if (kids.at(1)->getType() == paramlist) {
+    if (isTerminalValue(kids.at(0), "[")) {
+        out.push_back(buildArraySuffix(node));
+        collectDirectDecSuffixes(kids.back(), out);
+    } else if (kids.at(1)->getType() == paramlist) {
         out.push_back(buildParamList(kids.at(1)));
-        collectDirectDecSuffixes(kids.at(3), out);
+        collectDirectDecSuffixes(kids.back(), out);
     } else {
         out.push_back(ParamList{});
-        collectDirectDecSuffixes(kids.at(2), out);
+        collectDirectDecSuffixes(kids.back(), out);
     }
 }
 
 static void collectDirectAbstractSuffixes(const Node::Ptr& node, std::vector<ParamList>& out) {
     if (!node || node->getChildren().empty()) return;
     const auto& kids = node->getChildren();
-    if (kids.at(1)->getType() == paramlist) {
+    if (isTerminalValue(kids.at(0), "[")) {
+        out.push_back(buildArraySuffix(node));
+        collectDirectAbstractSuffixes(kids.back(), out);
+    } else if (kids.at(1)->getType() == paramlist) {
         out.push_back(buildParamList(kids.at(1)));
-        collectDirectAbstractSuffixes(kids.at(3), out);
+        collectDirectAbstractSuffixes(kids.back(), out);
     } else {
         out.push_back(ParamList{});
-        collectDirectAbstractSuffixes(kids.at(2), out);
+        collectDirectAbstractSuffixes(kids.back(), out);
     }
 }
 

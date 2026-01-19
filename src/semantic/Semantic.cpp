@@ -222,6 +222,10 @@ private:
     Type applySuffixes(const Type& base, const std::vector<ast::ParamList>& params) {
         Type current = base;
         for (const auto& plist : params) {
+            if (plist.isArray) {
+                current = makePointer(current);
+                continue;
+            }
             std::vector<Type> paramTypes;
             for (const auto& param : plist.params) {
                 Type paramType = typeFromTypeSpec(param.type);
