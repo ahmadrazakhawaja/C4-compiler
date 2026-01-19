@@ -49,8 +49,6 @@ struct ParamDecl {
 
 struct ParamList {
     std::vector<ParamDecl> params;
-    bool isArray = false;
-    std::optional<Expr> arraySize;
 };
 
 struct DirectDeclarator {

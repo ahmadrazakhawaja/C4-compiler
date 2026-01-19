@@ -39,8 +39,6 @@ static SourceLocation tokenLocation(const Node::Ptr& node) {
 }
 
 static std::string renderTypeInline(const TypeSpec& type);
-static std::string renderStructTypeInline(const StructType& st, int indentLevel);
-static std::string renderExpr(const Node::Ptr& node);
 
 static RenderResult renderDeclarator(const Declarator& decl);
 static RenderResult renderAbstractDeclarator(const AbstractDeclarator& decl);
@@ -80,15 +78,7 @@ static RenderResult renderDirectDeclaratorCore(const DirectDeclarator& direct) {
 
     if (!direct.params.empty()) {
         for (const auto& params : direct.params) {
-            if (params.isArray) {
-                res.text += "[";
-                if (params.arraySize.has_value()) {
-                    res.text += renderExpr(params.arraySize->root);
-                }
-                res.text += "]";
-            } else {
-                res.text += "(" + renderParamList(params) + ")";
-            }
+            res.text += "(" + renderParamList(params) + ")";
         }
         res.isAtomic = false;
     }
@@ -112,15 +102,7 @@ static RenderResult renderDeclarator(const Declarator& decl) {
 static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDeclarator& direct) {
     RenderResult res;
     if (direct.kind == DirectAbstractDeclarator::Kind::ParamList) {
-        if (direct.firstParamList.isArray) {
-            res.text = "[";
-            if (direct.firstParamList.arraySize.has_value()) {
-                res.text += renderExpr(direct.firstParamList.arraySize->root);
-            }
-            res.text += "]";
-        } else {
-            res.text = "(" + renderParamList(direct.firstParamList) + ")";
-        }
+        res.text = "(" + renderParamList(direct.firstParamList) + ")";
     } else {
         RenderResult inner = renderAbstractDeclaratorCore(*direct.nested);
         res.text = "(" + inner.text + ")";
@@ -128,15 +110,7 @@ static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDecla
 
     if (!direct.suffixes.empty()) {
         for (const auto& params : direct.suffixes) {
-            if (params.isArray) {
-                res.text += "[";
-                if (params.arraySize.has_value()) {
-                    res.text += renderExpr(params.arraySize->root);
-                }
-                res.text += "]";
-            } else {
-                res.text += "(" + renderParamList(params) + ")";
-            }
+            res.text += "(" + renderParamList(params) + ")";
         }
     }
     res.isAtomic = false;
@@ -169,32 +143,15 @@ static std::string renderTypeInline(const TypeSpec& type) {
     if (type.kind == TypeSpec::Kind::Builtin) {
         return type.builtin;
     }
-    return renderStructTypeInline(type.structType, 0);
-}
-
-static std::string renderTypeInlineFromNode(const Node::Ptr& node);
-
-static std::string renderStructTypeInline(const StructType& st, int indentLevel) {
     std::ostringstream ss;
     ss << "struct";
-    if (st.name.has_value()) {
-        ss << " " << *st.name;
-    }
-    if (!st.fields.empty()) {
-        ss << " {\n";
-        for (const auto& field : st.fields) {
-            indent(ss, indentLevel + 1);
-            ss << renderTypeInline(field.type);
-            if (field.declarator.has_value()) {
-                ss << " " << renderDeclarator(*field.declarator).text;
-            }
-            ss << ";\n";
-        }
-        indent(ss, indentLevel);
-        ss << "}";
+    if (type.structType.name.has_value()) {
+        ss << " " << *type.structType.name;
     }
     return ss.str();
 }
+
+static std::string renderTypeInlineFromNode(const Node::Ptr& node);
 
 static std::string renderExpr(const Node::Ptr& node) {
     if (!node) return "";
@@ -258,9 +215,7 @@ static std::string renderExpr(const Node::Ptr& node) {
         }
         case product: {
             const auto& kids = node->getChildren();
-            std::string op = tokenValue(node);
-            if (op.empty()) op = "*";
-            return "(" + renderExpr(kids.at(0)) + " " + op + " " + renderExpr(kids.at(1)) + ")";
+            return "(" + renderExpr(kids.at(0)) + " * " + renderExpr(kids.at(1)) + ")";
         }
         case sum: {
             const auto& kids = node->getChildren();
@@ -272,9 +227,7 @@ static std::string renderExpr(const Node::Ptr& node) {
         }
         case comparison: {
             const auto& kids = node->getChildren();
-            std::string op = tokenValue(node);
-            if (op.empty()) op = "<";
-            return "(" + renderExpr(kids.at(0)) + " " + op + " " + renderExpr(kids.at(1)) + ")";
+            return "(" + renderExpr(kids.at(0)) + " < " + renderExpr(kids.at(1)) + ")";
         }
         case equality: {
             const auto& kids = node->getChildren();
@@ -440,7 +393,18 @@ static void printStatement(const Statement& stmt, std::ostream& os, int level) {
 static void printDecl(const Decl& decl, std::ostream& os, int level) {
     if (decl.type.kind == TypeSpec::Kind::Struct && !decl.type.structType.fields.empty()) {
         indent(os, level);
-        os << renderStructTypeInline(decl.type.structType, level);
+        os << "struct";
+        if (decl.type.structType.name.has_value()) {
+            os << " " << *decl.type.structType.name;
+        }
+        os << "\n";
+        indent(os, level);
+        os << "{\n";
+        for (const auto& field : decl.type.structType.fields) {
+            printDecl(field, os, level + 1);
+        }
+        indent(os, level);
+        os << "}";
         if (decl.declarator.has_value()) {
             os << " " << renderDeclarator(*decl.declarator).text;
         }
@@ -497,16 +461,8 @@ static void collectDirectDecSuffixes(const Node::Ptr& node, std::vector<ParamLis
         out.push_back(buildParamList(kids.at(1)));
         collectDirectDecSuffixes(kids.at(3), out);
     } else {
-        ParamList list;
-        if (isTerminalValue(kids.at(0), "[")) {
-            list.isArray = true;
-            if (kids.at(1)->getType() == expr && !kids.at(1)->getChildren().empty()) {
-                list.arraySize = Expr{kids.at(1)->getChildren().at(0)};
-            }
-        }
-        out.push_back(std::move(list));
-        const size_t nextIndex = isTerminalValue(kids.at(0), "[") && kids.size() > 3 ? 3 : 2;
-        collectDirectDecSuffixes(kids.at(nextIndex), out);
+        out.push_back(ParamList{});
+        collectDirectDecSuffixes(kids.at(2), out);
     }
 }
 
@@ -517,16 +473,8 @@ static void collectDirectAbstractSuffixes(const Node::Ptr& node, std::vector<Par
         out.push_back(buildParamList(kids.at(1)));
         collectDirectAbstractSuffixes(kids.at(3), out);
     } else {
-        ParamList list;
-        if (isTerminalValue(kids.at(0), "[")) {
-            list.isArray = true;
-            if (kids.at(1)->getType() == expr && !kids.at(1)->getChildren().empty()) {
-                list.arraySize = Expr{kids.at(1)->getChildren().at(0)};
-            }
-        }
-        out.push_back(std::move(list));
-        const size_t nextIndex = isTerminalValue(kids.at(0), "[") && kids.size() > 3 ? 3 : 2;
-        collectDirectAbstractSuffixes(kids.at(nextIndex), out);
+        out.push_back(ParamList{});
+        collectDirectAbstractSuffixes(kids.at(2), out);
     }
 }
 
@@ -603,20 +551,7 @@ static Declarator buildDeclarator(const Node::Ptr& node) {
 static DirectAbstractDeclarator buildDirectAbstractDeclarator(const Node::Ptr& node) {
     DirectAbstractDeclarator direct;
     const auto& kids = node->getChildren();
-    if (kids.size() < 2) return direct;
-
-    if (isTerminalValue(kids.at(0), "[")) {
-        direct.kind = DirectAbstractDeclarator::Kind::ParamList;
-        direct.firstParamList.isArray = true;
-        if (kids.at(1)->getType() == expr && !kids.at(1)->getChildren().empty()) {
-            direct.firstParamList.arraySize = Expr{kids.at(1)->getChildren().at(0)};
-        }
-        const size_t suffixIndex = kids.size() > 3 ? 3 : 2;
-        if (suffixIndex < kids.size()) {
-            collectDirectAbstractSuffixes(kids.at(suffixIndex), direct.suffixes);
-        }
-        return direct;
-    }
+    if (kids.size() < 3) return direct;
 
     if (kids.at(1)->getType() == paramlist || isTerminalValue(kids.at(1), ")")) {
         direct.kind = DirectAbstractDeclarator::Kind::ParamList;

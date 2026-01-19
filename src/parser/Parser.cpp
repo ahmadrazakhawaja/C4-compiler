@@ -69,7 +69,7 @@ Token Parser::peek(int k) {
 // -------------------------
 // Static run
 // -------------------------
-bool Parser::run(const std::string& fileName, const std::string& path, bool isVerbose, bool runSemantic) {
+bool Parser::run(const std::string& fileName, const std::string& path, bool isVerbose) {
     std::string sourceCode;
     try {
         sourceCode = Utils::readSourceCode(path);
@@ -91,10 +91,8 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
     Parser parser(tokens, isVerbose, fileName);
 
     if (!parser.parse()) {
-        if (runSemantic) {
-            auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
-            if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
-        }
+        auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
+        if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
 
         std::cout << "Successfully parsed " << fileName << "\n";
         prettyPrint::Options opt;
@@ -927,21 +925,12 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case abstractdeclarator_:
-            if (next.getValue() == "(" || next.getValue() == "[") {
+            if (next.getValue() == "(") {
                 symbol->addChild(directabstractdeclarator);
             }
             return symbol;
 
         case directabstractdeclarator:
-            if (next.getValue() == "[") {
-                symbol->addChild("[");
-                if (peek(1).getValue() != "]") {
-                    symbol->addChild(expr);
-                }
-                symbol->addChild("]");
-                symbol->addChild(directabstractdeclarator_);
-                return symbol;
-            }
             if (next.getValue() == "(" &&
                 (peek(1).getValue() == ")" || peek(1).getValue() == "void" ||
                  peek(1).getValue() == "char" || peek(1).getValue() == "int"  ||
@@ -961,15 +950,6 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case directabstractdeclarator_:
-            if (next.getValue() == "[") {
-                symbol->addChild("[");
-                if (peek(1).getValue() != "]") {
-                    symbol->addChild(expr);
-                }
-                symbol->addChild("]");
-                symbol->addChild(directabstractdeclarator_);
-                return symbol;
-            }
             if (next.getValue() == "(") {
                 symbol->addChild("(");
                 if (peek(1).getValue() != ")") {
@@ -1042,27 +1022,15 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             symbol->addChild("(");
             symbol->addChild(expr);
             symbol->addChild(")");
-            if (peek(0).getValue() == ";") {
-                if (!errorToken.has_value()) {
-                    errorToken = peek(0);
-                }
-                return std::nullopt;
-            }
             symbol->addChild(statement);
             symbol->addChild(selectstatement_);
             return symbol;
 
         case selectstatement_:
             if (next.getValue() == "else") {
-                if (peek(1).getValue() == ";") {
-                    if (!errorToken.has_value()) {
-                        errorToken = peek(1);
-                    }
-                    return std::nullopt;
-                }
                 if (peek(1).getValue() == "}" || peek(1).getValue() == "EOF") {
                     if (!errorToken.has_value()) {
-                        errorToken = peek(1);
+                        errorToken = next;
                     }
                     return std::nullopt;
                 }
@@ -1144,6 +1112,10 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return std::nullopt;
 
         case exprstatement:
+            if (next.getValue() == ";") {
+                symbol->addChild(";");
+                return symbol;
+            }
             symbol->addChild(expr);
             symbol->addChild(";");
             return symbol;

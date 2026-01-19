@@ -26,13 +26,7 @@ int main(int argc, char** argv) {
         std::string fullPath = argv[2];
         std::string file = fullPath;
 
-        try {
-            std::cerr << Utils::readSourceCode(fullPath);
-        } catch (const std::exception& ex) {
-            std::cerr << ex.what() << std::endl;
-        }
-
-        bool ok = Parser::run(file, fullPath, false, false);
+        bool ok = Parser::run(file, fullPath, false);
         return ok ? 0 : 1;
     }
 
@@ -40,7 +34,7 @@ int main(int argc, char** argv) {
         std::string fullPath = argv[2];
         std::string file = fullPath;
 
-        bool ok = Parser::run(file, fullPath, true, false);
+        bool ok = Parser::run(file, fullPath, true);
         return ok ? 0 : 1;
     }
 
