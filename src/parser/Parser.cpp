@@ -39,6 +39,20 @@ static void print_production(const Node::Ptr& node) {
     std::cout << "$";
 }
 
+static bool isStatementStart(const Token& tok, const Token& nextTok) {
+    const std::string& val = tok.getValue();
+    if (tok.getTokenType() == "identifier" && nextTok.getValue() == ":") return true;
+    if (val == "if" || val == "while" || val == "goto" || val == "continue" ||
+        val == "break" || val == "return" || val == "{" || val == ";") return true;
+    if (tok.getTokenType() == "identifier") return true;
+    if (tok.getTokenType() == "decimal-constant") return true;
+    if (tok.getTokenType() == "character-constant") return true;
+    if (tok.getTokenType() == "string-literal") return true;
+    if (val == "(" || val == "&" || val == "*" || val == "!" || val == "sizeof" ||
+        val == "++" || val == "--" || val == "-") return true;
+    return false;
+}
+
 // -------------------------
 // Constructor
 // -------------------------
@@ -1028,9 +1042,10 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
 
         case selectstatement_:
             if (next.getValue() == "else") {
-                if (peek(1).getValue() == "}" || peek(1).getValue() == "EOF") {
+                Token after = peek(1);
+                if (!isStatementStart(after, peek(2))) {
                     if (!errorToken.has_value()) {
-                        errorToken = peek(1);
+                        errorToken = after;
                     }
                     return std::nullopt;
                 }
