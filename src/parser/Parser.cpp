@@ -106,7 +106,7 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
 
     if (!parser.parse()) {
         auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
-        // if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
+        if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
 
         std::cout << "Successfully parsed " << fileName << "\n";
         prettyPrint::Options opt;
