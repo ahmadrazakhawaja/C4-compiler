@@ -131,7 +131,7 @@ TokenizeAttempt TokenizeHelper::tokenizeKeywordPunctuators(const char* code) {
         "auto", "break", "case", "char", "const", "continue", "default", "do", "double",
         "else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long",
         "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct",
-        "typedef", "union", "unsigned", "void", "volatile", "while",
+        "switch", "typedef", "union", "unsigned", "void", "volatile", "while",
         "_Bool", "_Complex", "_Imaginary"
     };
 
