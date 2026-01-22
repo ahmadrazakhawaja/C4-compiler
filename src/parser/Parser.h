@@ -33,7 +33,6 @@ private:
     std::vector<Node::Ptr> remSymbols;
     std::optional<Token> errorToken;
     std::optional<Token> lastConsumedToken;
-    bool pendingSwitchBodyOpen = false;
 
     int remTokensExpressionIndex = 0;
     std::vector<Node::Ptr> remRevExprSymbols;

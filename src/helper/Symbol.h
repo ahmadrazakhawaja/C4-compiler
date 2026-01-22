@@ -48,10 +48,6 @@
     X(exprstatement) \
     X(selectstatement) \
     X(selectstatement_) \
-    X(switchstatement) \
-    X(switchbody) \
-    X(switchbody_) \
-    X(casestatement) \
     X(iterstatement) \
     X(jumpstatement) \
     X(expr) \
