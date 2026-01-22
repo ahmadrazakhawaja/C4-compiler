@@ -159,7 +159,12 @@ private:
 
     bool declare(const std::string& name, const SymbolInfo& info) {
         auto& scope = scopes.back();
-        if (scope.find(name) != scope.end()) {
+        auto it = scope.find(name);
+        if (it != scope.end()) {
+            if (typeEqual(it->second.type, info.type)) {
+                it->second.defined = it->second.defined || info.defined;
+                return true;
+            }
             report(info.loc, "redeclaration of '" + name + "'");
             return false;
         }
