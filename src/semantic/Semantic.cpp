@@ -161,7 +161,7 @@ private:
         auto& scope = scopes.back();
         auto it = scope.find(name);
         if (it != scope.end()) {
-            if (typeEqual(it->second.type, info.type)) {
+            if (it->second.isFunction && info.isFunction && typeEqual(it->second.type, info.type)) {
                 it->second.defined = it->second.defined || info.defined;
                 return true;
             }
