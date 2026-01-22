@@ -536,10 +536,15 @@ static TypeSpec buildType(const Node::Ptr& node) {
             st.name = tokenValue(skids.at(1));
             st.nameLoc = tokenLocation(skids.at(1));
         }
-        if (skids.size() >= 4 && isTerminalValue(skids.at(1), "{")) {
-            collectStructDecls(skids.at(2), st.fields);
-        } else if (skids.size() >= 5 && isTerminalValue(skids.at(2), "{")) {
-            collectStructDecls(skids.at(3), st.fields);
+        int brace = -1;
+        for (int i = 0; i < (int)skids.size(); ++i) {
+            if (isTerminalValue(skids.at(i), "{")) {
+                brace = i;
+                break;
+            }
+        }
+        if (brace != -1 && brace + 1 < (int)skids.size()) {
+            collectStructDecls(skids.at(brace + 1), st.fields);
         }
         typeSpec.structType = std::move(st);
         return typeSpec;
