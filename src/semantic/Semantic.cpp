@@ -484,14 +484,14 @@ private:
             } else if constexpr (std::is_same_v<T, ast::StmtIf>) {
                 ExprInfo cond = analyzeExpr(arg.condition.root);
                 if (!isScalar(cond.type)) {
-                    report(cond.loc.line >= 0 ? cond.loc : arg.loc, "if condition is not scalar");
+                    report(arg.loc, "if condition is not scalar");
                 }
                 analyzeStatement(*arg.thenStmt);
                 if (arg.elseStmt) analyzeStatement(*arg.elseStmt);
             } else if constexpr (std::is_same_v<T, ast::StmtWhile>) {
                 ExprInfo cond = analyzeExpr(arg.condition.root);
                 if (!isScalar(cond.type)) {
-                    report(cond.loc.line >= 0 ? cond.loc : arg.loc, "while condition is not scalar");
+                    report(arg.loc, "while condition is not scalar");
                 }
                 bool prev = inLoop;
                 inLoop = true;
