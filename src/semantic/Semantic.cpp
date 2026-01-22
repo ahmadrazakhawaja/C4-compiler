@@ -81,12 +81,6 @@ static bool isVoidOnlyParamList(const ast::ParamList& plist) {
     return p.type.kind == ast::TypeSpec::Kind::Builtin && p.type.builtin == "void";
 }
 
-static std::string makeAnonStructName(const SourceLocation& loc) {
-    std::ostringstream ss;
-    ss << "anon@" << (loc.line + 1) << ":" << (loc.column + 1);
-    return ss.str();
-}
-
 struct SymbolInfo {
     Type type;
     bool isFunction = false;
@@ -181,14 +175,16 @@ private:
             return makeError();
         }
 
-        const std::string name = spec.structType.name.has_value()
-            ? *spec.structType.name
-            : makeAnonStructName(spec.loc);
+        if (!spec.structType.name.has_value()) {
+            report(spec.loc, "anonymous structs are not supported");
+            return makeError();
+        }
+
+        const std::string& name = *spec.structType.name;
         if (!spec.structType.fields.empty()) {
             auto it = structs.find(name);
             if (it != structs.end() && it->second.defined) {
-                SourceLocation loc = spec.structType.name.has_value() ? spec.structType.nameLoc : spec.loc;
-                report(loc, "redefinition of struct '" + name + "'");
+                report(spec.structType.nameLoc, "redefinition of struct '" + name + "'");
             }
 
             StructInfo info;
@@ -362,6 +358,15 @@ private:
         if (!isFunction(funcType)) {
             report(nameLoc, "function definition is not a function type");
             return;
+        }
+
+        if (isStruct(*funcType.returnType)) {
+            report(nameLoc, "functions returning struct are not supported");
+        }
+        for (const auto& param : funcType.params) {
+            if (isStruct(param)) {
+                report(nameLoc, "struct parameters are not supported");
+            }
         }
 
         SymbolInfo info;
@@ -836,7 +841,10 @@ private:
 
         const auto& skids = child->getChildren();
         SourceLocation loc = locFromNode(skids.empty() ? child : skids.at(0));
-        if (skids.size() < 2 || skids.at(1)->getType() != id) return;
+        if (skids.size() < 2 || skids.at(1)->getType() != id) {
+            report(loc, "anonymous structs are not supported");
+            return;
+        }
         std::string name = skids.at(1)->getToken()->getValue();
         auto it = structs.find(name);
         if (it == structs.end()) {
