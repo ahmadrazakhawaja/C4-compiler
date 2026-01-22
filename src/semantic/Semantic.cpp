@@ -172,6 +172,21 @@ private:
         return true;
     }
 
+    bool declareFunctionGlobal(const std::string& name, const SymbolInfo& info) {
+        auto& scope = scopes.front();
+        auto it = scope.find(name);
+        if (it != scope.end()) {
+            if (it->second.isFunction && typeEqual(it->second.type, info.type)) {
+                it->second.defined = it->second.defined || info.defined;
+                return true;
+            }
+            report(info.loc, "redeclaration of '" + name + "'");
+            return false;
+        }
+        scope.emplace(name, info);
+        return true;
+    }
+
     Type typeFromTypeSpec(const ast::TypeSpec& spec) {
         if (spec.kind == ast::TypeSpec::Kind::Builtin) {
             if (spec.builtin == "int") return makeInt();
@@ -347,7 +362,11 @@ private:
         info.isFunction = isFunction(full);
         info.defined = false;
         info.loc = nameLoc;
-        declare(name, info);
+        if (info.isFunction) {
+            declareFunctionGlobal(name, info);
+        } else {
+            declare(name, info);
+        }
     }
 
     void analyzeFunction(const ast::FuncDef& func) {
@@ -390,7 +409,7 @@ private:
                 existing->defined = true;
             }
         } else {
-            declare(name, info);
+            declareFunctionGlobal(name, info);
         }
 
         inFunction = true;
