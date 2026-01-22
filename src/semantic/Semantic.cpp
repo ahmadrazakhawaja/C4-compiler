@@ -42,7 +42,7 @@ static bool isStruct(const Type& t) { return t.kind == Type::Kind::Struct; }
 static bool isPointer(const Type& t) { return t.kind == Type::Kind::Pointer; }
 static bool isFunction(const Type& t) { return t.kind == Type::Kind::Function; }
 static bool isInteger(const Type& t) { return t.kind == Type::Kind::Int || t.kind == Type::Kind::Char; }
-static bool isScalar(const Type& t) { return isInteger(t) || isPointer(t) || isFunction(t); }
+static bool isScalar(const Type& t) { return isInteger(t) || isPointer(t); }
 
 static bool typeEqual(const Type& a, const Type& b) {
     if (isError(a) || isError(b)) return true;
