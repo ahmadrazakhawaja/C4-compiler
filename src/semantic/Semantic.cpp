@@ -620,21 +620,19 @@ private:
                 return info;
             }
             case functioncall: {
-                const auto& calleeNode = node->getChildren().at(0);
-                SourceLocation callLoc = locFromNode(calleeNode);
-                auto callee = analyzeExpr(calleeNode);
+                auto callee = analyzeExpr(node->getChildren().at(0));
                 Type funcType = callee.type;
                 if (isPointer(funcType) && isFunction(*funcType.pointee)) {
                     funcType = *funcType.pointee;
                 }
                 if (!isFunction(funcType)) {
-                    report(callLoc, "call to non-function");
+                    report(info.loc, "call to non-function");
                     info.type = makeError();
                     return info;
                 }
                 if (funcType.paramsKnown) {
                     if (node->getChildren().size() - 1 != funcType.params.size()) {
-                        report(callLoc, "argument count mismatch");
+                        report(info.loc, "argument count mismatch");
                     }
                     for (size_t i = 1; i < node->getChildren().size(); ++i) {
                         ExprInfo arg = analyzeExpr(node->getChildren().at(i));
@@ -642,7 +640,7 @@ private:
                             const Type& paramType = funcType.params[i - 1];
                             if (!valueCompatible(paramType, arg.type) &&
                                 !(isPointer(paramType) && arg.isNullPtrConst)) {
-                                report(callLoc, "argument type mismatch");
+                                report(info.loc, "argument type mismatch");
                             }
                         }
                     }
