@@ -456,24 +456,24 @@ private:
         }
     }
 
-    static const ast::ParamList* findFirstParamList(const ast::Declarator& decl) {
-        if (!decl.direct.params.empty()) {
-            for (const auto& plist : decl.direct.params) {
-                if (!plist.isArray) return &plist;
-            }
-        }
-        if (decl.direct.kind == ast::DirectDeclarator::Kind::Nested && decl.direct.nested) {
-            return findFirstParamList(*decl.direct.nested);
-        }
-        return nullptr;
+    static bool isVoidOnlyParamListDecl(const ast::ParamDecl& p) {
+        return !p.declarator && !p.abstractDeclarator &&
+            p.type.kind == ast::TypeSpec::Kind::Builtin && p.type.builtin == "void";
     }
 
     static void collectParamDecls(const ast::Declarator& decl, std::vector<const ast::ParamDecl*>& out) {
-        const auto* plist = findFirstParamList(decl);
-        if (!plist) return;
-        if (isVoidOnlyParamList(*plist)) return;
-        for (const auto& param : plist->params) {
-            out.push_back(&param);
+        if (!decl.direct.params.empty()) {
+            const auto& plist = decl.direct.params.front();
+            if (plist.params.size() == 1 && isVoidOnlyParamListDecl(plist.params[0])) {
+                return;
+            }
+            for (const auto& param : plist.params) {
+                out.push_back(&param);
+            }
+            return;
+        }
+        if (decl.direct.kind == ast::DirectDeclarator::Kind::Nested && decl.direct.nested) {
+            collectParamDecls(*decl.direct.nested, out);
         }
     }
 
