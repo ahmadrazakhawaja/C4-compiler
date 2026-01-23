@@ -621,7 +621,10 @@ private:
             }
             case functioncall: {
                 const auto& calleeNode = node->getChildren().at(0);
-                SourceLocation callLoc = bestLoc(calleeNode);
+                SourceLocation callLoc = locFromNode(node);
+                if (!validLoc(callLoc)) {
+                    callLoc = bestLoc(calleeNode);
+                }
                 auto callee = analyzeExpr(calleeNode);
                 Type funcType = callee.type;
                 if (isPointer(funcType) && isFunction(*funcType.pointee)) {
