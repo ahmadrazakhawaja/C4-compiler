@@ -39,6 +39,7 @@ static SourceLocation tokenLocation(const Node::Ptr& node) {
 }
 
 static std::string renderTypeInline(const TypeSpec& type);
+static std::string renderTypeInlineFull(const TypeSpec& type);
 static std::string renderExpr(const Node::Ptr& node);
 
 static RenderResult renderDeclarator(const Declarator& decl);
@@ -46,9 +47,12 @@ static RenderResult renderAbstractDeclarator(const AbstractDeclarator& decl);
 static RenderResult renderDeclaratorCore(const Declarator& decl);
 static RenderResult renderAbstractDeclaratorCore(const AbstractDeclarator& decl);
 
+static TypeSpec buildType(const Node::Ptr& node);
+static AbstractDeclarator buildAbstractDeclarator(const Node::Ptr& node);
+
 static std::string renderParamDecl(const ParamDecl& param) {
     std::ostringstream ss;
-    ss << renderTypeInline(param.type);
+    ss << renderTypeInlineFull(param.type);
     if (param.declarator) {
         ss << " " << renderDeclarator(*param.declarator).text;
     } else if (param.abstractDeclarator) {
@@ -168,7 +172,49 @@ static std::string renderTypeInline(const TypeSpec& type) {
     return ss.str();
 }
 
-static std::string renderTypeInlineFromNode(const Node::Ptr& node);
+static std::string renderTypeInlineFull(const TypeSpec& type) {
+    if (type.kind != TypeSpec::Kind::Struct || type.structType.fields.empty()) {
+        return renderTypeInline(type);
+    }
+    std::ostringstream ss;
+    ss << "struct";
+    if (type.structType.name.has_value()) {
+        ss << " " << *type.structType.name;
+    }
+    ss << "\n{\n";
+    for (const auto& field : type.structType.fields) {
+        indent(ss, 1);
+        ss << renderTypeInlineFull(field.type);
+        if (field.declarator.has_value()) {
+            ss << " " << renderDeclarator(*field.declarator).text;
+        }
+        ss << ";\n";
+    }
+    ss << "}";
+    return ss.str();
+}
+
+static Node::Ptr findFirstNodeOfType(const Node::Ptr& node, Symbol sym) {
+    if (!node) return nullptr;
+    if (node->getType() == sym) return node;
+    for (const auto& child : node->getChildren()) {
+        if (auto res = findFirstNodeOfType(child, sym)) return res;
+    }
+    return nullptr;
+}
+
+static std::string renderTypeNameFromTypeNode(const Node::Ptr& typeNode) {
+    if (!typeNode || typeNode->getType() != type) return "";
+    TypeSpec ts = buildType(typeNode);
+    std::ostringstream ss;
+    ss << renderTypeInlineFull(ts);
+    if (auto adNode = findFirstNodeOfType(typeNode, abstractdeclarator)) {
+        auto ad = buildAbstractDeclarator(adNode);
+        auto adText = renderAbstractDeclarator(ad).text;
+        if (!adText.empty()) ss << " " << adText;
+    }
+    return ss.str();
+}
 
 static std::string renderExpr(const Node::Ptr& node) {
     if (!node) return "";
@@ -226,7 +272,7 @@ static std::string renderExpr(const Node::Ptr& node) {
         case sizeoperator: {
             const auto& kids = node->getChildren();
             if (!kids.empty() && kids.front()->getType() == type) {
-                return "(sizeof(" + renderTypeInlineFromNode(kids.front()) + "))";
+                return "(sizeof(" + renderTypeNameFromTypeNode(kids.front()) + "))";
             }
             return "(sizeof " + renderExpr(kids.at(0)) + ")";
         }
@@ -273,21 +319,6 @@ static std::string renderExpr(const Node::Ptr& node) {
         default:
             return "";
     }
-}
-
-static std::string renderTypeInlineFromNode(const Node::Ptr& node) {
-    if (!node || node->getType() != type || node->getChildren().empty()) return "";
-    const auto& child = node->getChildren().front();
-    if (child->getType() == structtype) {
-        const auto& kids = child->getChildren();
-        std::ostringstream ss;
-        ss << "struct";
-        if (kids.size() >= 2 && kids[1]->getType() == id) {
-            ss << " " << tokenValue(kids[1]);
-        }
-        return ss.str();
-    }
-    return tokenValue(child);
 }
 
 static void printDecl(const Decl& decl, std::ostream& os, int level);
@@ -430,7 +461,7 @@ static void printDecl(const Decl& decl, std::ostream& os, int level) {
     }
 
     indent(os, level);
-    os << renderTypeInline(decl.type);
+    os << renderTypeInlineFull(decl.type);
     if (decl.declarator.has_value()) {
         os << " " << renderDeclarator(*decl.declarator).text;
     }
@@ -807,7 +838,7 @@ void printAst(const TranslationUnit& tu, std::ostream& os) {
             if constexpr (std::is_same_v<T, Decl>) {
                 printDecl(arg, os, 0);
             } else if constexpr (std::is_same_v<T, FuncDef>) {
-                os << renderTypeInline(arg.type) << " " << renderDeclarator(arg.declarator).text << "\n";
+                os << renderTypeInlineFull(arg.type) << " " << renderDeclarator(arg.declarator).text << "\n";
                 printCompound(arg.body, os, 0);
             }
         }, ext.node);
