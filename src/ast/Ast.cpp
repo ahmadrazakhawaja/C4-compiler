@@ -116,7 +116,8 @@ static RenderResult renderDeclarator(const Declarator& decl) {
 static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDeclarator& direct) {
     RenderResult res;
     if (direct.kind == DirectAbstractDeclarator::Kind::ParamList) {
-        res.text = "(" + renderParamList(direct.firstParamList) + ")";
+        const std::string plist = renderParamList(direct.firstParamList);
+        res.text = "((" + plist + "))";
         res.isAtomic = false;
     } else {
         RenderResult inner = renderAbstractDeclaratorCore(*direct.nested);
