@@ -21,7 +21,6 @@ struct Type {
     std::shared_ptr<Type> pointee;
     std::shared_ptr<Type> returnType;
     std::vector<Type> params;
-    bool paramsKnown = true;
 };
 
 static Type makeError() { return Type{Type::Kind::Error}; }
@@ -30,16 +29,12 @@ static Type makeChar() { return Type{Type::Kind::Char}; }
 static Type makeInt() { return Type{Type::Kind::Int}; }
 static Type makeStruct(const std::string& name) { Type t; t.kind = Type::Kind::Struct; t.structName = name; return t; }
 static Type makePointer(const Type& base) { Type t; t.kind = Type::Kind::Pointer; t.pointee = std::make_shared<Type>(base); return t; }
-static Type makeFunction(const Type& ret, const std::vector<Type>& params, bool paramsKnown = true) {
+static Type makeFunction(const Type& ret, const std::vector<Type>& params) {
     Type t;
     t.kind = Type::Kind::Function;
     t.returnType = std::make_shared<Type>(ret);
     t.params = params;
-    t.paramsKnown = paramsKnown;
     return t;
-}
-static Type makeFunctionUnspecified(const Type& ret) {
-    return makeFunction(ret, {}, false);
 }
 
 static bool isError(const Type& t) { return t.kind == Type::Kind::Error; }
@@ -63,7 +58,6 @@ static bool typeEqual(const Type& a, const Type& b) {
             return typeEqual(*a.pointee, *b.pointee);
         case Type::Kind::Function:
             if (!typeEqual(*a.returnType, *b.returnType)) return false;
-            if (!a.paramsKnown || !b.paramsKnown) return true;
             if (a.params.size() != b.params.size()) return false;
             for (size_t i = 0; i < a.params.size(); ++i) {
                 if (!typeEqual(a.params[i], b.params[i])) return false;
@@ -271,10 +265,6 @@ private:
             }
             if (isVoidOnlyParamList(plist)) {
                 current = makeFunction(current, {});
-                continue;
-            }
-            if (plist.params.empty()) {
-                current = makeFunctionUnspecified(current);
                 continue;
             }
             std::vector<Type> paramTypes;
@@ -626,23 +616,17 @@ private:
                     info.type = makeError();
                     return info;
                 }
-                if (funcType.paramsKnown) {
-                    if (node->getChildren().size() - 1 != funcType.params.size()) {
-                        report(info.loc, "argument count mismatch");
-                    }
-                    for (size_t i = 1; i < node->getChildren().size(); ++i) {
-                        ExprInfo arg = analyzeExpr(node->getChildren().at(i));
-                        if (i - 1 < funcType.params.size()) {
-                            const Type& paramType = funcType.params[i - 1];
-                            if (!valueCompatible(paramType, arg.type) &&
-                                !(isPointer(paramType) && arg.isNullPtrConst)) {
-                                report(info.loc, "argument type mismatch");
-                            }
+                if (node->getChildren().size() - 1 != funcType.params.size()) {
+                    report(info.loc, "argument count mismatch");
+                }
+                for (size_t i = 1; i < node->getChildren().size(); ++i) {
+                    ExprInfo arg = analyzeExpr(node->getChildren().at(i));
+                    if (i - 1 < funcType.params.size()) {
+                        const Type& paramType = funcType.params[i - 1];
+                        if (!valueCompatible(paramType, arg.type) &&
+                            !(isPointer(paramType) && arg.isNullPtrConst)) {
+                            report(info.loc, "argument type mismatch");
                         }
-                    }
-                } else {
-                    for (size_t i = 1; i < node->getChildren().size(); ++i) {
-                        analyzeExpr(node->getChildren().at(i));
                     }
                 }
                 info.type = *funcType.returnType;
