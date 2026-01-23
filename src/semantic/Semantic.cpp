@@ -21,7 +21,6 @@ struct Type {
     std::shared_ptr<Type> pointee;
     std::shared_ptr<Type> returnType;
     std::vector<Type> params;
-    bool paramsKnown = true;
 };
 
 static Type makeError() { return Type{Type::Kind::Error}; }
@@ -30,16 +29,12 @@ static Type makeChar() { return Type{Type::Kind::Char}; }
 static Type makeInt() { return Type{Type::Kind::Int}; }
 static Type makeStruct(const std::string& name) { Type t; t.kind = Type::Kind::Struct; t.structName = name; return t; }
 static Type makePointer(const Type& base) { Type t; t.kind = Type::Kind::Pointer; t.pointee = std::make_shared<Type>(base); return t; }
-static Type makeFunction(const Type& ret, const std::vector<Type>& params, bool paramsKnown = true) {
+static Type makeFunction(const Type& ret, const std::vector<Type>& params) {
     Type t;
     t.kind = Type::Kind::Function;
     t.returnType = std::make_shared<Type>(ret);
     t.params = params;
-    t.paramsKnown = paramsKnown;
     return t;
-}
-static Type makeFunctionUnspecified(const Type& ret) {
-    return makeFunction(ret, {}, false);
 }
 
 static bool isError(const Type& t) { return t.kind == Type::Kind::Error; }
@@ -63,7 +58,6 @@ static bool typeEqual(const Type& a, const Type& b) {
             return typeEqual(*a.pointee, *b.pointee);
         case Type::Kind::Function:
             if (!typeEqual(*a.returnType, *b.returnType)) return false;
-            if (!a.paramsKnown || !b.paramsKnown) return true;
             if (a.params.size() != b.params.size()) return false;
             for (size_t i = 0; i < a.params.size(); ++i) {
                 if (!typeEqual(a.params[i], b.params[i])) return false;
@@ -113,20 +107,6 @@ static SourceLocation locFromNode(const Node::Ptr& node) {
     loc.line = node->getToken()->getSourceLine();
     loc.column = node->getToken()->getSourceIndex();
     return loc;
-}
-
-static bool validLoc(const SourceLocation& loc) {
-    return loc.line >= 0 && loc.column >= 0;
-}
-
-static SourceLocation bestLoc(const Node::Ptr& node) {
-    if (!node) return SourceLocation{};
-    if (node->getToken().has_value()) return locFromNode(node);
-    for (const auto& child : node->getChildren()) {
-        SourceLocation childLoc = bestLoc(child);
-        if (validLoc(childLoc)) return childLoc;
-    }
-    return SourceLocation{};
 }
 
 class Analyzer {
@@ -285,10 +265,6 @@ private:
             }
             if (isVoidOnlyParamList(plist)) {
                 current = makeFunction(current, {});
-                continue;
-            }
-            if (plist.params.empty()) {
-                current = makeFunctionUnspecified(current);
                 continue;
             }
             std::vector<Type> paramTypes;
@@ -578,7 +554,7 @@ private:
 
     ExprInfo analyzeExpr(const Node::Ptr& node) {
         ExprInfo info;
-        info.loc = bestLoc(node);
+        info.loc = locFromNode(node);
         if (!node) {
             info.type = makeError();
             return info;
@@ -610,14 +586,12 @@ private:
                 return info;
             }
             case parenthesizedexpr:
-                if (!node->getChildren().empty()) {
-                    return analyzeExpr(node->getChildren().front(), decayFunctions);
-                }
+                if (!node->getChildren().empty()) return analyzeExpr(node->getChildren().front());
                 info.type = makeError();
                 return info;
             case arrayaccess: {
-                auto base = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                auto idx = analyzeExpr(node->getChildren().at(1), decayFunctions);
+                auto base = analyzeExpr(node->getChildren().at(0));
+                auto idx = analyzeExpr(node->getChildren().at(1));
                 if (!isPointer(base.type) && isPointer(idx.type)) {
                     std::swap(base, idx);
                 }
@@ -632,59 +606,49 @@ private:
                 return info;
             }
             case functioncall: {
-                const auto& calleeNode = node->getChildren().at(0);
-                SourceLocation callLoc = bestLoc(calleeNode);
-                auto callee = analyzeExpr(calleeNode, decayFunctions);
+                auto callee = analyzeExpr(node->getChildren().at(0));
                 Type funcType = callee.type;
                 if (isPointer(funcType) && isFunction(*funcType.pointee)) {
                     funcType = *funcType.pointee;
                 }
                 if (!isFunction(funcType)) {
-                    report(callLoc, "call to non-function");
+                    report(info.loc, "call to non-function");
                     info.type = makeError();
                     return info;
                 }
-                if (funcType.paramsKnown) {
-                    if (node->getChildren().size() - 1 != funcType.params.size()) {
-                        report(callLoc, "argument count mismatch");
-                    }
-                    for (size_t i = 1; i < node->getChildren().size(); ++i) {
-                        ExprInfo arg = analyzeExpr(node->getChildren().at(i), decayFunctions);
-                        if (i - 1 < funcType.params.size()) {
-                            const Type& paramType = funcType.params[i - 1];
-                            if (!valueCompatible(paramType, arg.type) &&
-                                !(isPointer(paramType) && arg.isNullPtrConst)) {
-                                report(callLoc, "argument type mismatch");
-                            }
+                if (node->getChildren().size() - 1 != funcType.params.size()) {
+                    report(info.loc, "argument count mismatch");
+                }
+                for (size_t i = 1; i < node->getChildren().size(); ++i) {
+                    ExprInfo arg = analyzeExpr(node->getChildren().at(i));
+                    if (i - 1 < funcType.params.size()) {
+                        const Type& paramType = funcType.params[i - 1];
+                        if (!valueCompatible(paramType, arg.type) &&
+                            !(isPointer(paramType) && arg.isNullPtrConst)) {
+                            report(info.loc, "argument type mismatch");
                         }
-                    }
-                } else {
-                    for (size_t i = 1; i < node->getChildren().size(); ++i) {
-                        analyzeExpr(node->getChildren().at(i), decayFunctions);
                     }
                 }
                 info.type = *funcType.returnType;
                 return info;
             }
             case memberaccess: {
-                auto base = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                const auto& fieldNode = node->getChildren().at(1);
-                SourceLocation fieldLoc = bestLoc(fieldNode);
-                std::string fieldName = fieldNode->getToken()->getValue();
+                auto base = analyzeExpr(node->getChildren().at(0));
+                std::string fieldName = node->getChildren().at(1)->getToken()->getValue();
                 if (!isStruct(base.type)) {
-                    report(fieldLoc, "member access on non-struct");
+                    report(info.loc, "member access on non-struct");
                     info.type = makeError();
                     return info;
                 }
                 auto it = structs.find(base.type.structName);
                 if (it == structs.end() || !it->second.defined) {
-                    report(fieldLoc, "use of incomplete struct '" + base.type.structName + "'");
+                    report(info.loc, "use of incomplete struct '" + base.type.structName + "'");
                     info.type = makeError();
                     return info;
                 }
                 auto field = it->second.fields.find(fieldName);
                 if (field == it->second.fields.end()) {
-                    report(fieldLoc, "unknown field '" + fieldName + "'");
+                    report(info.loc, "unknown field '" + fieldName + "'");
                     info.type = makeError();
                     return info;
                 }
@@ -693,24 +657,22 @@ private:
                 return info;
             }
             case pointermemberaccess: {
-                auto base = analyzeExpr(node->getChildren().at(0), decayFunctions);
+                auto base = analyzeExpr(node->getChildren().at(0));
                 if (!isPointer(base.type) || !isStruct(*base.type.pointee)) {
                     report(info.loc, "pointer member access on non-struct pointer");
                     info.type = makeError();
                     return info;
                 }
-                const auto& fieldNode = node->getChildren().at(1);
-                SourceLocation fieldLoc = bestLoc(fieldNode);
-                std::string fieldName = fieldNode->getToken()->getValue();
+                std::string fieldName = node->getChildren().at(1)->getToken()->getValue();
                 auto it = structs.find(base.type.pointee->structName);
                 if (it == structs.end() || !it->second.defined) {
-                    report(fieldLoc, "use of incomplete struct '" + base.type.pointee->structName + "'");
+                    report(info.loc, "use of incomplete struct '" + base.type.pointee->structName + "'");
                     info.type = makeError();
                     return info;
                 }
                 auto field = it->second.fields.find(fieldName);
                 if (field == it->second.fields.end()) {
-                    report(fieldLoc, "unknown field '" + fieldName + "'");
+                    report(info.loc, "unknown field '" + fieldName + "'");
                     info.type = makeError();
                     return info;
                 }
@@ -719,7 +681,7 @@ private:
                 return info;
             }
             case reference: {
-                auto operand = analyzeExpr(node->getChildren().at(0), false);
+                auto operand = analyzeExpr(node->getChildren().at(0));
                 if (!operand.isLvalue && !isFunction(operand.type)) {
                     report(info.loc, "cannot take address of rvalue");
                 }
@@ -727,7 +689,7 @@ private:
                 return info;
             }
             case dereference: {
-                auto operand = analyzeExpr(node->getChildren().at(0), decayFunctions);
+                auto operand = analyzeExpr(node->getChildren().at(0));
                 if (!isPointer(operand.type)) {
                     report(info.loc, "dereference of non-pointer");
                     info.type = makeError();
@@ -738,7 +700,7 @@ private:
                 return info;
             }
             case negationarithmetic: {
-                auto operand = analyzeExpr(node->getChildren().at(0), decayFunctions);
+                auto operand = analyzeExpr(node->getChildren().at(0));
                 if (!isInteger(operand.type)) {
                     report(info.loc, "arithmetic negation on non-integer");
                 }
@@ -746,7 +708,7 @@ private:
                 return info;
             }
             case negationlogical: {
-                auto operand = analyzeExpr(node->getChildren().at(0), decayFunctions);
+                auto operand = analyzeExpr(node->getChildren().at(0));
                 if (!isScalar(operand.type)) {
                     report(info.loc, "logical negation on non-scalar");
                 }
@@ -757,7 +719,7 @@ private:
             case predecrement:
             case postincrement:
             case postdecrement: {
-                auto operand = analyzeExpr(node->getChildren().at(0), decayFunctions);
+                auto operand = analyzeExpr(node->getChildren().at(0));
                 if (!operand.isLvalue) {
                     report(info.loc, "increment/decrement of non-lvalue");
                 }
@@ -778,8 +740,8 @@ private:
             case product:
             case sum:
             case difference: {
-                auto lhs = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                auto rhs = analyzeExpr(node->getChildren().at(1), decayFunctions);
+                auto lhs = analyzeExpr(node->getChildren().at(0));
+                auto rhs = analyzeExpr(node->getChildren().at(1));
                 if (node->getType() == product) {
                     if (!isInteger(lhs.type) || !isInteger(rhs.type)) {
                         report(info.loc, "invalid operands to '*'");
@@ -816,8 +778,8 @@ private:
                 return info;
             }
             case comparison: {
-                auto lhs = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                auto rhs = analyzeExpr(node->getChildren().at(1), decayFunctions);
+                auto lhs = analyzeExpr(node->getChildren().at(0));
+                auto rhs = analyzeExpr(node->getChildren().at(1));
                 if (!(isInteger(lhs.type) && isInteger(rhs.type)) &&
                     !(isPointer(lhs.type) && isPointer(rhs.type) && typeEqual(*lhs.type.pointee, *rhs.type.pointee))) {
                     report(info.loc, "invalid operands to '<'");
@@ -827,8 +789,8 @@ private:
             }
             case equality:
             case inequality: {
-                auto lhs = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                auto rhs = analyzeExpr(node->getChildren().at(1), decayFunctions);
+                auto lhs = analyzeExpr(node->getChildren().at(0));
+                auto rhs = analyzeExpr(node->getChildren().at(1));
                 bool okTypes = false;
                 if (isInteger(lhs.type) && isInteger(rhs.type)) okTypes = true;
                 if (isPointer(lhs.type) && isPointer(rhs.type) &&
@@ -841,8 +803,8 @@ private:
             }
             case conjunction:
             case disjunction: {
-                auto lhs = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                auto rhs = analyzeExpr(node->getChildren().at(1), decayFunctions);
+                auto lhs = analyzeExpr(node->getChildren().at(0));
+                auto rhs = analyzeExpr(node->getChildren().at(1));
                 if (!isScalar(lhs.type) || !isScalar(rhs.type)) {
                     report(info.loc, "logical operator on non-scalar");
                 }
@@ -850,9 +812,9 @@ private:
                 return info;
             }
             case ternary: {
-                auto cond = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                auto tval = analyzeExpr(node->getChildren().at(1), decayFunctions);
-                auto fval = analyzeExpr(node->getChildren().at(2), decayFunctions);
+                auto cond = analyzeExpr(node->getChildren().at(0));
+                auto tval = analyzeExpr(node->getChildren().at(1));
+                auto fval = analyzeExpr(node->getChildren().at(2));
                 if (!isScalar(cond.type)) report(info.loc, "ternary condition not scalar");
                 if (valueCompatible(tval.type, fval.type) && valueCompatible(fval.type, tval.type)) {
                     if (isInteger(tval.type) && isInteger(fval.type)) {
@@ -875,8 +837,8 @@ private:
                 return info;
             }
             case assignment: {
-                auto lhs = analyzeExpr(node->getChildren().at(0), decayFunctions);
-                auto rhs = analyzeExpr(node->getChildren().at(1), decayFunctions);
+                auto lhs = analyzeExpr(node->getChildren().at(0));
+                auto rhs = analyzeExpr(node->getChildren().at(1));
                 if (!lhs.isLvalue) {
                     report(info.loc, "assignment to non-lvalue");
                 }
