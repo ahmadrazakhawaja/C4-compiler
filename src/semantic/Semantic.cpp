@@ -299,10 +299,10 @@ private:
         }
 
         if (decl.direct.kind == ast::DirectDeclarator::Kind::Nested) {
+            current = applySuffixes(current, decl.direct.params);
             if (decl.direct.nested) {
                 current = applyDeclarator(current, *decl.direct.nested);
             }
-            current = applySuffixes(current, decl.direct.params);
             return current;
         }
 
