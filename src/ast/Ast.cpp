@@ -62,6 +62,14 @@ static std::string renderParamDecl(const ParamDecl& param) {
 }
 
 static std::string renderParamList(const ParamList& list) {
+    auto isVoidOnlyParamListPrint = [](const ParamList& l) {
+        if (l.isArray) return false;
+        if (l.params.size() != 1) return false;
+        const auto& p = l.params[0];
+        if (p.declarator || p.abstractDeclarator) return false;
+        return p.type.kind == TypeSpec::Kind::Builtin && p.type.builtin == "void";
+    };
+    if (isVoidOnlyParamListPrint(list)) return "void";
     std::ostringstream ss;
     for (size_t i = 0; i < list.params.size(); ++i) {
         if (i > 0) ss << ", ";
