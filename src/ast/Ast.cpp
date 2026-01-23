@@ -541,13 +541,19 @@ static void collectDirectDecSuffixes(const Node::Ptr& node, std::vector<ParamLis
     if (isTerminalValue(kids.at(0), "[")) {
         out.push_back(buildArraySuffix(node));
         collectDirectDecSuffixes(kids.back(), out);
-    } else if (kids.at(1)->getType() == paramlist) {
+        return;
+    }
+    if (kids.size() >= 2 && kids.at(1)->getType() == paramlist) {
         out.push_back(buildParamList(kids.at(1)));
         collectDirectDecSuffixes(kids.back(), out);
-    } else {
+        return;
+    }
+    if (kids.size() >= 2 && isTerminalValue(kids.at(0), "(") && isTerminalValue(kids.at(1), ")")) {
         out.push_back(ParamList{});
         collectDirectDecSuffixes(kids.back(), out);
+        return;
     }
+    collectDirectDecSuffixes(kids.back(), out);
 }
 
 static void collectDirectAbstractSuffixes(const Node::Ptr& node, std::vector<ParamList>& out) {
@@ -556,13 +562,19 @@ static void collectDirectAbstractSuffixes(const Node::Ptr& node, std::vector<Par
     if (isTerminalValue(kids.at(0), "[")) {
         out.push_back(buildArraySuffix(node));
         collectDirectAbstractSuffixes(kids.back(), out);
-    } else if (kids.at(1)->getType() == paramlist) {
+        return;
+    }
+    if (kids.size() >= 2 && kids.at(1)->getType() == paramlist) {
         out.push_back(buildParamList(kids.at(1)));
         collectDirectAbstractSuffixes(kids.back(), out);
-    } else {
+        return;
+    }
+    if (kids.size() >= 2 && isTerminalValue(kids.at(0), "(") && isTerminalValue(kids.at(1), ")")) {
         out.push_back(ParamList{});
         collectDirectAbstractSuffixes(kids.back(), out);
+        return;
     }
+    collectDirectAbstractSuffixes(kids.back(), out);
 }
 
 static int countPointerDepth(const Node::Ptr& node) {
