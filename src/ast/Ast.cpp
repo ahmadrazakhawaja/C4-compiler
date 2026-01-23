@@ -77,7 +77,8 @@ static RenderResult renderDirectDeclaratorCore(const DirectDeclarator& direct) {
         res.isAtomic = true;
     } else {
         RenderResult inner = renderDeclaratorCore(*direct.nested);
-        res = inner;
+        res.text = "(" + inner.text + ")";
+        res.isAtomic = true;
     }
 
     if (!direct.params.empty()) {
@@ -120,7 +121,8 @@ static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDecla
         res.isAtomic = false;
     } else {
         RenderResult inner = renderAbstractDeclaratorCore(*direct.nested);
-        res = inner;
+        res.text = "(" + inner.text + ")";
+        res.isAtomic = true;
     }
 
     for (const auto& params : direct.suffixes) {
