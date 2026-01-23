@@ -529,8 +529,24 @@ static ParamList buildArraySuffix(const Node::Ptr& node) {
     ParamList list;
     list.isArray = true;
     const auto& kids = node->getChildren();
-    if (kids.size() > 3 && kids.at(1)->getType() == expr && !kids.at(1)->getChildren().empty()) {
-        list.arraySize = Expr{kids.at(1)->getChildren().at(0)};
+    if (kids.empty()) return list;
+    const size_t limit = kids.size() >= 1 ? kids.size() - 1 : 0;
+    Node::Ptr exprNode = nullptr;
+    for (size_t i = 0; i < limit; ++i) {
+        const auto& k = kids[i];
+        if (!k) continue;
+        if (k->getType() == expr) {
+            exprNode = k;
+            break;
+        }
+        if (!k->getChildren().empty() && k->getChildren().front() &&
+            k->getChildren().front()->getType() == expr) {
+            exprNode = k->getChildren().front();
+            break;
+        }
+    }
+    if (exprNode && !exprNode->getChildren().empty()) {
+        list.arraySize = Expr{exprNode->getChildren().at(0)};
     }
     return list;
 }
