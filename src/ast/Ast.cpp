@@ -79,24 +79,24 @@ static RenderResult renderDirectDeclaratorCore(const DirectDeclarator& direct) {
         RenderResult inner = renderDeclaratorCore(*direct.nested);
         res = inner;
     }
-
-    if (!direct.params.empty()) {
-        for (const auto& params : direct.params) {
-            if (params.isArray) {
-                std::string inside = res.text;
-                res.text = "(" + inside + "[";
-                if (params.arraySize) {
-                    res.text += renderExpr(params.arraySize->root);
-                }
-                res.text += "])";
-            } else {
-                std::string inside = res.text;
-                res.text = "(" + inside + "(" + renderParamList(params) + "))";
-            }
-            res.isAtomic = false;
-        }
-    }
     return res;
+}
+
+static void applyDirectDeclaratorSuffixes(RenderResult& res, const std::vector<ParamList>& suffixes) {
+    for (const auto& params : suffixes) {
+        if (params.isArray) {
+            std::string inside = res.text;
+            res.text = "(" + inside + "[";
+            if (params.arraySize) {
+                res.text += renderExpr(params.arraySize->root);
+            }
+            res.text += "])";
+        } else {
+            std::string inside = res.text;
+            res.text = "(" + inside + "(" + renderParamList(params) + "))";
+        }
+        res.isAtomic = false;
+    }
 }
 
 static RenderResult renderDeclaratorCore(const Declarator& decl) {
@@ -106,6 +106,7 @@ static RenderResult renderDeclaratorCore(const Declarator& decl) {
         res.text = "(*" + res.text + ")";
         res.isAtomic = false;
     }
+    applyDirectDeclaratorSuffixes(res, decl.direct.params);
     return res;
 }
 
@@ -122,8 +123,11 @@ static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDecla
         RenderResult inner = renderAbstractDeclaratorCore(*direct.nested);
         res = inner;
     }
+    return res;
+}
 
-    for (const auto& params : direct.suffixes) {
+static void applyDirectAbstractDeclaratorSuffixes(RenderResult& res, const std::vector<ParamList>& suffixes) {
+    for (const auto& params : suffixes) {
         if (params.isArray) {
             std::string inside = res.text;
             res.text = "(" + inside + "[";
@@ -137,7 +141,6 @@ static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDecla
         }
         res.isAtomic = false;
     }
-    return res;
 }
 
 static RenderResult renderAbstractDeclaratorCore(const AbstractDeclarator& decl) {
@@ -152,6 +155,9 @@ static RenderResult renderAbstractDeclaratorCore(const AbstractDeclarator& decl)
     for (int i = 0; i < decl.pointerDepth; ++i) {
         res.text = "(*" + res.text + ")";
         res.isAtomic = false;
+    }
+    if (decl.hasDirect) {
+        applyDirectAbstractDeclaratorSuffixes(res, decl.direct.suffixes);
     }
     return res;
 }
