@@ -577,10 +577,6 @@ private:
     }
 
     ExprInfo analyzeExpr(const Node::Ptr& node) {
-        return analyzeExpr(node, true);
-    }
-
-    ExprInfo analyzeExpr(const Node::Ptr& node, bool decayFunctions) {
         ExprInfo info;
         info.loc = bestLoc(node);
         if (!node) {
@@ -596,13 +592,8 @@ private:
                     report(info.loc, "use of undeclared identifier '" + name + "'");
                     info.type = makeError();
                 } else {
-                    if (sym->isFunction && decayFunctions) {
-                        info.type = makePointer(sym->type);
-                        info.isLvalue = false;
-                    } else {
-                        info.type = sym->type;
-                        info.isLvalue = !isFunction(info.type);
-                    }
+                    info.type = sym->type;
+                    info.isLvalue = !isFunction(info.type);
                 }
                 return info;
             }
