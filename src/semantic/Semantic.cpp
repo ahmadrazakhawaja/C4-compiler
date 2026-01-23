@@ -445,11 +445,7 @@ private:
                 hasName = extractDeclaratorName(*param->declarator, name, loc);
             }
             if (!hasName) {
-                bool isVoidType = param->type.kind == ast::TypeSpec::Kind::Builtin &&
-                    param->type.builtin == "void";
-                if (!isVoidType && !param->abstractDeclarator) {
-                    report(param->type.loc, "parameter name missing");
-                }
+                report(param->type.loc, "parameter name missing");
             } else {
                 SymbolInfo info;
                 info.type = funcType.params.at(paramIndex);
