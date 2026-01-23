@@ -77,64 +77,66 @@ static RenderResult renderDirectDeclaratorCore(const DirectDeclarator& direct) {
         res.isAtomic = true;
     } else {
         RenderResult inner = renderDeclaratorCore(*direct.nested);
-        res.text = "(" + inner.text + ")";
-        res.isAtomic = true;
+        res = inner;
     }
 
     if (!direct.params.empty()) {
         for (const auto& params : direct.params) {
             if (params.isArray) {
-                res.text += "[";
+                std::string inside = res.text;
+                res.text = "(" + inside + "[";
                 if (params.arraySize) {
                     res.text += renderExpr(params.arraySize->root);
                 }
-                res.text += "]";
+                res.text += "])";
             } else {
-                res.text += "(" + renderParamList(params) + ")";
+                std::string inside = res.text;
+                res.text = "(" + inside + "(" + renderParamList(params) + "))";
             }
+            res.isAtomic = false;
         }
-        res.isAtomic = false;
     }
     return res;
 }
 
 static RenderResult renderDeclaratorCore(const Declarator& decl) {
-    RenderResult base = renderDirectDeclaratorCore(decl.direct);
     RenderResult res;
-    res.text = std::string(decl.pointerDepth, '*') + base.text;
-    res.isAtomic = (decl.pointerDepth == 0 && base.isAtomic);
+    res = renderDirectDeclaratorCore(decl.direct);
+    for (int i = 0; i < decl.pointerDepth; ++i) {
+        res.text = "(*" + res.text + ")";
+        res.isAtomic = false;
+    }
     return res;
 }
 
 static RenderResult renderDeclarator(const Declarator& decl) {
-    RenderResult res = renderDeclaratorCore(decl);
-    if (!res.isAtomic) res.text = "(" + res.text + ")";
-    return res;
+    return renderDeclaratorCore(decl);
 }
 
 static RenderResult renderDirectAbstractDeclaratorCore(const DirectAbstractDeclarator& direct) {
     RenderResult res;
     if (direct.kind == DirectAbstractDeclarator::Kind::ParamList) {
         res.text = "(" + renderParamList(direct.firstParamList) + ")";
+        res.isAtomic = false;
     } else {
         RenderResult inner = renderAbstractDeclaratorCore(*direct.nested);
-        res.text = "(" + inner.text + ")";
+        res = inner;
     }
 
-    if (!direct.suffixes.empty()) {
-        for (const auto& params : direct.suffixes) {
-            if (params.isArray) {
-                res.text += "[";
-                if (params.arraySize) {
-                    res.text += renderExpr(params.arraySize->root);
-                }
-                res.text += "]";
-            } else {
-                res.text += "(" + renderParamList(params) + ")";
+    for (const auto& params : direct.suffixes) {
+        if (params.isArray) {
+            std::string inside = res.text;
+            res.text = "(" + inside + "[";
+            if (params.arraySize) {
+                res.text += renderExpr(params.arraySize->root);
             }
+            res.text += "])";
+        } else {
+            std::string inside = res.text;
+            res.text = "(" + inside + "(" + renderParamList(params) + "))";
         }
+        res.isAtomic = false;
     }
-    res.isAtomic = false;
     return res;
 }
 
@@ -147,17 +149,15 @@ static RenderResult renderAbstractDeclaratorCore(const AbstractDeclarator& decl)
         res.isAtomic = true;
     }
 
-    if (decl.pointerDepth > 0) {
-        res.text = std::string(decl.pointerDepth, '*') + res.text;
+    for (int i = 0; i < decl.pointerDepth; ++i) {
+        res.text = "(*" + res.text + ")";
         res.isAtomic = false;
     }
     return res;
 }
 
 static RenderResult renderAbstractDeclarator(const AbstractDeclarator& decl) {
-    RenderResult res = renderAbstractDeclaratorCore(decl);
-    if (!res.isAtomic) res.text = "(" + res.text + ")";
-    return res;
+    return renderAbstractDeclaratorCore(decl);
 }
 
 static std::string renderTypeInline(const TypeSpec& type) {
@@ -216,6 +216,19 @@ static std::string renderTypeNameFromTypeNode(const Node::Ptr& typeNode) {
     return ss.str();
 }
 
+static bool isAtomicExprNode(const Node::Ptr& node) {
+    if (!node) return false;
+    switch (node->getType()) {
+        case id:
+        case stringliteral:
+        case charconst:
+        case decimalconst:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static std::string renderExpr(const Node::Ptr& node) {
     if (!node) return "";
 
@@ -266,9 +279,19 @@ static std::string renderExpr(const Node::Ptr& node) {
         case predecrement:
             return "(--" + renderExpr(node->getChildren().at(0)) + ")";
         case postincrement:
-            return "(" + renderExpr(node->getChildren().at(0)) + "++)";
+        {
+            const auto& child = node->getChildren().at(0);
+            std::string op = renderExpr(child);
+            if (isAtomicExprNode(child)) op = "(" + op + ")";
+            return "(" + op + "++)";
+        }
         case postdecrement:
-            return "(" + renderExpr(node->getChildren().at(0)) + "--)";
+        {
+            const auto& child = node->getChildren().at(0);
+            std::string op = renderExpr(child);
+            if (isAtomicExprNode(child)) op = "(" + op + ")";
+            return "(" + op + "--)";
+        }
         case sizeoperator: {
             const auto& kids = node->getChildren();
             if (!kids.empty() && kids.front()->getType() == type) {
