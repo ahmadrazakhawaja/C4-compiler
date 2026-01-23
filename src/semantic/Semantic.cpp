@@ -109,6 +109,20 @@ static SourceLocation locFromNode(const Node::Ptr& node) {
     return loc;
 }
 
+static bool validLoc(const SourceLocation& loc) {
+    return loc.line >= 0 && loc.column >= 0;
+}
+
+static SourceLocation bestLoc(const Node::Ptr& node) {
+    if (!node) return SourceLocation{};
+    if (node->getToken().has_value()) return locFromNode(node);
+    for (const auto& child : node->getChildren()) {
+        SourceLocation childLoc = bestLoc(child);
+        if (validLoc(childLoc)) return childLoc;
+    }
+    return SourceLocation{};
+}
+
 class Analyzer {
 public:
     explicit Analyzer(std::ostream& errStream, std::string file)
@@ -554,7 +568,7 @@ private:
 
     ExprInfo analyzeExpr(const Node::Ptr& node) {
         ExprInfo info;
-        info.loc = locFromNode(node);
+        info.loc = bestLoc(node);
         if (!node) {
             info.type = makeError();
             return info;
@@ -606,18 +620,20 @@ private:
                 return info;
             }
             case functioncall: {
-                auto callee = analyzeExpr(node->getChildren().at(0));
+                const auto& calleeNode = node->getChildren().at(0);
+                SourceLocation callLoc = bestLoc(calleeNode);
+                auto callee = analyzeExpr(calleeNode);
                 Type funcType = callee.type;
                 if (isPointer(funcType) && isFunction(*funcType.pointee)) {
                     funcType = *funcType.pointee;
                 }
                 if (!isFunction(funcType)) {
-                    report(info.loc, "call to non-function");
+                    report(callLoc, "call to non-function");
                     info.type = makeError();
                     return info;
                 }
                 if (node->getChildren().size() - 1 != funcType.params.size()) {
-                    report(info.loc, "argument count mismatch");
+                    report(callLoc, "argument count mismatch");
                 }
                 for (size_t i = 1; i < node->getChildren().size(); ++i) {
                     ExprInfo arg = analyzeExpr(node->getChildren().at(i));
@@ -625,7 +641,7 @@ private:
                         const Type& paramType = funcType.params[i - 1];
                         if (!valueCompatible(paramType, arg.type) &&
                             !(isPointer(paramType) && arg.isNullPtrConst)) {
-                            report(info.loc, "argument type mismatch");
+                            report(callLoc, "argument type mismatch");
                         }
                     }
                 }
@@ -634,21 +650,23 @@ private:
             }
             case memberaccess: {
                 auto base = analyzeExpr(node->getChildren().at(0));
-                std::string fieldName = node->getChildren().at(1)->getToken()->getValue();
+                const auto& fieldNode = node->getChildren().at(1);
+                SourceLocation fieldLoc = bestLoc(fieldNode);
+                std::string fieldName = fieldNode->getToken()->getValue();
                 if (!isStruct(base.type)) {
-                    report(info.loc, "member access on non-struct");
+                    report(fieldLoc, "member access on non-struct");
                     info.type = makeError();
                     return info;
                 }
                 auto it = structs.find(base.type.structName);
                 if (it == structs.end() || !it->second.defined) {
-                    report(info.loc, "use of incomplete struct '" + base.type.structName + "'");
+                    report(fieldLoc, "use of incomplete struct '" + base.type.structName + "'");
                     info.type = makeError();
                     return info;
                 }
                 auto field = it->second.fields.find(fieldName);
                 if (field == it->second.fields.end()) {
-                    report(info.loc, "unknown field '" + fieldName + "'");
+                    report(fieldLoc, "unknown field '" + fieldName + "'");
                     info.type = makeError();
                     return info;
                 }
@@ -663,16 +681,18 @@ private:
                     info.type = makeError();
                     return info;
                 }
-                std::string fieldName = node->getChildren().at(1)->getToken()->getValue();
+                const auto& fieldNode = node->getChildren().at(1);
+                SourceLocation fieldLoc = bestLoc(fieldNode);
+                std::string fieldName = fieldNode->getToken()->getValue();
                 auto it = structs.find(base.type.pointee->structName);
                 if (it == structs.end() || !it->second.defined) {
-                    report(info.loc, "use of incomplete struct '" + base.type.pointee->structName + "'");
+                    report(fieldLoc, "use of incomplete struct '" + base.type.pointee->structName + "'");
                     info.type = makeError();
                     return info;
                 }
                 auto field = it->second.fields.find(fieldName);
                 if (field == it->second.fields.end()) {
-                    report(info.loc, "unknown field '" + fieldName + "'");
+                    report(fieldLoc, "unknown field '" + fieldName + "'");
                     info.type = makeError();
                     return info;
                 }
