@@ -279,9 +279,19 @@ static std::string renderExpr(const Node::Ptr& node) {
         case predecrement:
             return "(--" + renderExpr(node->getChildren().at(0)) + ")";
         case postincrement:
-            return "(" + renderExpr(node->getChildren().at(0)) + "++)";
+        {
+            const auto& child = node->getChildren().at(0);
+            std::string op = renderExpr(child);
+            if (isAtomicExprNode(child)) op = "(" + op + ")";
+            return "(" + op + "++)";
+        }
         case postdecrement:
-            return "(" + renderExpr(node->getChildren().at(0)) + "--)";
+        {
+            const auto& child = node->getChildren().at(0);
+            std::string op = renderExpr(child);
+            if (isAtomicExprNode(child)) op = "(" + op + ")";
+            return "(" + op + "--)";
+        }
         case sizeoperator: {
             const auto& kids = node->getChildren();
             if (!kids.empty() && kids.front()->getType() == type) {
