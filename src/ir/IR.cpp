@@ -572,6 +572,9 @@ private:
                 } else if (param.abstractDeclarator) {
                     paramType = applyAbstractDeclarator(paramType, *param.abstractDeclarator);
                 }
+                if (paramType.kind == TypeDesc::Kind::Function) {
+                    paramType = makePointer(paramType);
+                }
                 paramTypes.push_back(paramType);
             }
             current = makeFunction(current, paramTypes);
@@ -1186,9 +1189,24 @@ private:
                 return ev;
             }
             case dereference: {
-                TypeDesc ltype;
-                llvm::Value* addr = codegenLValue(node, ltype);
-                return makeLValue(addr, ltype);
+                ExprValue operand = codegenExpr(node->getChildren().at(0));
+                if (!operand.value) {
+                    ev.type = makeError();
+                    return ev;
+                }
+                if (!isPointer(operand.type)) {
+                    report("dereference of non-pointer");
+                    ev.type = makeError();
+                    return ev;
+                }
+                TypeDesc pointee = *operand.type.pointee;
+                if (pointee.kind == TypeDesc::Kind::Function) {
+                    ev.type = pointee;
+                    ev.value = operand.value;
+                    return ev;
+                }
+                llvm::Value* addr = operand.value;
+                return makeLValue(addr, pointee);
             }
             case negationarithmetic: {
                 ExprValue operand = codegenExpr(node->getChildren().at(0));
@@ -1476,6 +1494,10 @@ private:
                     return nullptr;
                 }
                 outType = *operand.type.pointee;
+                if (outType.kind == TypeDesc::Kind::Function) {
+                    report("cannot take lvalue of function type");
+                    return nullptr;
+                }
                 return operand.value;
             }
             case arrayaccess: {
