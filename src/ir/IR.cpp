@@ -12,6 +12,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
@@ -642,7 +643,7 @@ private:
                 return info.llvmType;
             }
             case TypeDesc::Kind::Pointer:
-                return llvm::PointerType::getUnqual(llvmType(*t.pointee));
+                return llvm::PointerType::getUnqual(context);
             case TypeDesc::Kind::Function: {
                 std::vector<llvm::Type*> args;
                 args.reserve(t.params.size());
@@ -658,7 +659,7 @@ private:
 
     llvm::Type* llvmValueType(const TypeDesc& t) {
         if (t.kind == TypeDesc::Kind::Function) {
-            return llvm::PointerType::getUnqual(llvmType(t));
+            return llvm::PointerType::getUnqual(context);
         }
         return llvmType(t);
     }
@@ -971,13 +972,24 @@ private:
         return ev;
     }
 
+    llvm::Value* createStringLiteral(const std::string& value) {
+        llvm::Constant* data = llvm::ConstantDataArray::getString(context, value, true);
+        auto* gv = new llvm::GlobalVariable(*module, data->getType(), true,
+                                            llvm::GlobalValue::PrivateLinkage,
+                                            data, "str");
+        gv->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+        llvm::Constant* zero = llvm::ConstantInt::get(builder.getInt32Ty(), 0);
+        llvm::Constant* indices[] = {zero, zero};
+        return llvm::ConstantExpr::getInBoundsGetElementPtr(data->getType(), gv, indices);
+    }
+
     llvm::Value* sizeOfType(const TypeDesc& type) {
         if (type.kind == TypeDesc::Kind::Void) {
             return llvm::ConstantInt::get(builder.getInt64Ty(), 0);
         }
         llvm::Type* objTy = llvmType(type);
         llvm::Constant* nullPtr = llvm::ConstantPointerNull::get(
-            llvm::PointerType::getUnqual(objTy));
+            llvm::PointerType::getUnqual(context));
         llvm::Constant* idx = llvm::ConstantInt::get(builder.getInt32Ty(), 1);
         llvm::Constant* gep = llvm::ConstantExpr::getGetElementPtr(objTy, nullPtr, {idx});
         return llvm::ConstantExpr::getPtrToInt(gep, builder.getInt64Ty());
@@ -1013,7 +1025,7 @@ private:
             case stringliteral: {
                 std::string raw = node->getToken()->getValue();
                 std::string parsed = parseStringLiteral(raw);
-                llvm::Value* str = builder.CreateGlobalStringPtr(parsed, "str");
+                llvm::Value* str = createStringLiteral(parsed);
                 ev.value = str;
                 ev.type = makePointer(makeChar());
                 return ev;
