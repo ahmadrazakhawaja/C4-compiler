@@ -15,7 +15,6 @@ set(MAIN_FILE src/main.cpp)
 # Automatically collect all source files from src/
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
 list(REMOVE_ITEM SOURCES ${MAIN_FILE})
-list(REMOVE_ITEM SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/parser/parser_test.cpp)
 
 # Define the executable name (MUST be 'c4' per requirements)
 add_executable(c4 ${MAIN_FILE} ${SOURCES})
