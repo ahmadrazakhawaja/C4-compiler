@@ -71,9 +71,15 @@ void Parser::setParseTreeRoot(const Node::Ptr &newTree) {
 // -------------------------
 // Static run
 // -------------------------
-void Parser::run(const std::string& fileName, const std::string& path, bool isVerbose) {
-    std::string fullPath = "test/lexer/" + fileName;
-    std::string sourceCode = Utils::readSourceCode(fullPath);
+bool Parser::run(const std::string& fileName, const std::string& path, bool isVerbose) {
+    std::string sourceCode;
+    try {
+        sourceCode = Utils::readSourceCode(path);
+    } catch (const std::exception& ex) {
+        std::cerr << ex.what() << std::endl;
+        return false;
+    }
+
     sourceCode += '\0';
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
 
@@ -81,7 +87,7 @@ void Parser::run(const std::string& fileName, const std::string& path, bool isVe
         int a = sequence.second->first;
         int b = sequence.second->second;
         std::cerr << "Lexer Error at line:" << a+1 << ":" << b+1 << std::endl;
-        return;
+        return false;
     }
 
     std::vector<Token> tokens = sequence.first;
@@ -110,6 +116,7 @@ void Parser::run(const std::string& fileName, const std::string& path, bool isVe
         std::cout << "\n=== Print Syntax ===\n"; 
         CodeGenerator::printCode(ast);
     }
+    return true;
 }
 
 // -------------------------

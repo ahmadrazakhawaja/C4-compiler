@@ -1,54 +1,63 @@
 #include "lexer/Lexer.h"
 #include "lexer/Tokenizer.h"
 #include "parser/parser_test.h"
+#include <filesystem>
+#include <exception>
 #include <iostream>
 #include "helper/Utils.h"
 #include "parser/Parser.h"
 
+static std::string display_name_from_path(const std::string& path) {
+    std::filesystem::path filePath(path);
+    if (filePath.has_filename()) {
+        return filePath.filename().string();
+    }
+    return path;
+}
+
 int main(int argc, char** argv) {
     if (argc >= 3 && std::string(argv[1]) == "--tokenize") {
 
-        std::string file = argv[2];
-        std::string fullPath = "test/lexer/" + file;
+        std::string fullPath = argv[2];
+        std::string file = display_name_from_path(fullPath);
 
-        run_lexer(file, fullPath, false);
-        return 0;
+        return run_lexer(file, fullPath, true) ? 0 : 1;
     }
+
     if (argc >= 3 && std::string(argv[1]) == "--tokenize_verbose") {
 
-        std::string file = argv[2];
-        std::string fullPath = "test/lexer/" + file;
-
-        run_lexer(file, fullPath, true);
-        return 0;
+        std::string fullPath = argv[2];
+        std::string file = display_name_from_path(fullPath);
+        return run_lexer(file, fullPath, true) ? 0 : 1;
     }
+    
     if (argc >= 2 && std::string(argv[1]) == "--parser_test") {
         parser_test();
     }
 
-
     if(argc >= 3 && std::string(argv[1]) == "--parse") {
-        std::string file = argv[2];
-        std::string fullPath = "test/lexer/" + file;
+        auto filePath = std::filesystem::current_path() / "test/lexer/pretty.c";
+        std::string fullPath = argv[2];
+        std::string file = display_name_from_path(filePath);
 
-        Parser::run(file, fullPath, false);
-        return 0;
+        bool ok = Parser::run(file, filePath, false);
+        return ok ? 0 : 1;
     }
 
     if(argc >= 3 && std::string(argv[1]) == "--parse_verbose") {
-        std::string file = argv[2];
-        std::string fullPath = "test/lexer/" + file;
+        std::string fullPath = argv[2];
+        std::string file = display_name_from_path(fullPath);
 
-        Parser::run(file, fullPath, true);
-        return 0;
+        bool ok = Parser::run(file, fullPath, false);
+        return ok ? 0 : 1;
     }
 
     if(argc >= 3 && std::string(argv[1]) == "--pretty") {
-        std::string file = argv[2];
-        std::string fullPath = "test/lexer/" + file;
+        std::string fullPath = argv[2];
+        std::string file = display_name_from_path(fullPath);
 
-        Parser::run(file, fullPath, false);
-        return 0;
+        bool ok = Parser::run(file, fullPath, false);
+        return ok ? 0 : 1;
     }
 
     // --- normaler Compiler-Code ---
