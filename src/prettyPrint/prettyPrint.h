@@ -6,6 +6,7 @@
 
 #include "../helper/structs/Node.h"
 #include <unordered_set>
+#include <unordered_map>
 
 namespace prettyPrint {
 
