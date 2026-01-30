@@ -1417,12 +1417,10 @@ private:
                 builder.SetInsertPoint(thenBlock);
                 ExprValue tval = codegenExpr(kids.at(1));
                 llvm::BasicBlock* thenEnd = builder.GetInsertBlock();
-                if (!thenEnd->getTerminator()) builder.CreateBr(endBlock);
 
                 builder.SetInsertPoint(elseBlock);
                 ExprValue fval = codegenExpr(kids.at(2));
                 llvm::BasicBlock* elseEnd = builder.GetInsertBlock();
-                if (!elseEnd->getTerminator()) builder.CreateBr(endBlock);
 
                 TypeDesc resultType = tval.type;
                 if (valueCompatible(tval.type, fval.type) && valueCompatible(fval.type, tval.type)) {
@@ -1435,10 +1433,16 @@ private:
                     resultType = fval.type;
                 }
 
+                builder.SetInsertPoint(thenEnd);
+                llvm::Value* tcoerced = coerceValue(tval.value, tval.type, resultType, tval.isNullPtrConst);
+                if (!thenEnd->getTerminator()) builder.CreateBr(endBlock);
+
+                builder.SetInsertPoint(elseEnd);
+                llvm::Value* fcoerced = coerceValue(fval.value, fval.type, resultType, fval.isNullPtrConst);
+                if (!elseEnd->getTerminator()) builder.CreateBr(endBlock);
+
                 builder.SetInsertPoint(endBlock);
                 llvm::PHINode* phi = builder.CreatePHI(llvmValueType(resultType), 2, "ternphi");
-                llvm::Value* tcoerced = coerceValue(tval.value, tval.type, resultType, tval.isNullPtrConst);
-                llvm::Value* fcoerced = coerceValue(fval.value, fval.type, resultType, fval.isNullPtrConst);
                 phi->addIncoming(tcoerced, thenEnd);
                 phi->addIncoming(fcoerced, elseEnd);
                 ev.value = phi;
@@ -1578,10 +1582,11 @@ private:
         ExprValue cond = codegenExpr(stmt.condition.root);
         llvm::Value* condBool = castToBool(cond.value, cond.type);
         llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(context, "if.then", currentFunction);
-        llvm::BasicBlock* elseBlock = llvm::BasicBlock::Create(context, "if.else", currentFunction);
+        llvm::BasicBlock* elseBlock = nullptr;
         llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(context, "if.end", currentFunction);
 
         if (stmt.elseStmt) {
+            elseBlock = llvm::BasicBlock::Create(context, "if.else", currentFunction);
             builder.CreateCondBr(condBool, thenBlock, elseBlock);
         } else {
             builder.CreateCondBr(condBool, thenBlock, mergeBlock);
