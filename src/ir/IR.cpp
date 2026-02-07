@@ -94,6 +94,9 @@ static bool typeEqual(const TypeDesc& a, const TypeDesc& b) {
 
 static bool valueCompatible(const TypeDesc& target, const TypeDesc& source) {
     if (isInteger(target) && isInteger(source)) return true;
+    if (isPointer(target) && isFunction(source)) {
+        return typeEqual(*target.pointee, source);
+    }
     return typeEqual(target, source);
 }
 
@@ -702,12 +705,26 @@ private:
             llvm::Function* fn = module->getFunction(name);
             if (!fn) {
                 fn = llvm::Function::Create(fty, llvm::Function::ExternalLinkage, name, module.get());
+            } else if (fn->getFunctionType() != fty) {
+                report("conflicting types for function '" + name + "'");
+                return false;
+            }
+            auto existing = scopes.back().find(name);
+            if (existing != scopes.back().end()) {
+                if (!existing->second.isFunction || !typeEqual(existing->second.type, full)) {
+                    report("redeclaration of '" + name + "'");
+                    return false;
+                }
+                existing->second.value = fn;
+                existing->second.type = full;
+                return true;
             }
             SymbolValue sym;
             sym.type = full;
             sym.value = fn;
             sym.isFunction = true;
-            return declare(name, sym);
+            scopes.back().emplace(name, sym);
+            return true;
         }
 
         llvm::Type* objTy = llvmType(full);
@@ -782,17 +799,28 @@ private:
         llvm::Function* fn = module->getFunction(name);
         if (!fn) {
             fn = llvm::Function::Create(fty, llvm::Function::ExternalLinkage, name, module.get());
+        } else if (fn->getFunctionType() != fty) {
+            report("conflicting types for function '" + name + "'");
+            return false;
         } else if (!fn->empty()) {
             report("redefinition of function '" + name + "'");
             return false;
         }
 
-        if (scopes.front().find(name) == scopes.front().end()) {
+        auto globalIt = scopes.front().find(name);
+        if (globalIt == scopes.front().end()) {
             SymbolValue sym;
             sym.type = full;
             sym.value = fn;
             sym.isFunction = true;
             scopes.front().emplace(name, sym);
+        } else {
+            if (!globalIt->second.isFunction || !typeEqual(globalIt->second.type, full)) {
+                report("conflicting types for function '" + name + "'");
+                return false;
+            }
+            globalIt->second.value = fn;
+            globalIt->second.type = full;
         }
 
         currentFunction = fn;
@@ -914,7 +942,10 @@ private:
             return builder.CreateZExt(value, targetTy, "zext");
         }
         if (value->getType()->isIntegerTy()) {
-            return builder.CreateTruncOrBitCast(value, targetTy);
+            auto srcBits = llvm::cast<llvm::IntegerType>(value->getType())->getBitWidth();
+            if (srcBits < 32) return builder.CreateSExt(value, targetTy, "sext");
+            if (srcBits > 32) return builder.CreateTrunc(value, targetTy, "trunc");
+            return value;
         }
         return value;
     }
@@ -922,6 +953,10 @@ private:
     llvm::Value* castToBool(llvm::Value* value, const TypeDesc& type) {
         if (!value) return nullptr;
         if (isPointer(type)) {
+            if (!value->getType()->isPointerTy()) {
+                llvm::Value* intVal = castToInt(value, type);
+                return builder.CreateICmpNE(intVal, llvm::ConstantInt::get(builder.getInt32Ty(), 0), "inttobool");
+            }
             return builder.CreateICmpNE(value,
                 llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(value->getType())),
                 "ptrtobool");
@@ -944,7 +979,10 @@ private:
         if (isInteger(to) && isInteger(from)) {
             if (to.kind == TypeDesc::Kind::Char) {
                 if (value->getType()->isIntegerTy(8)) return value;
-                return builder.CreateTrunc(value, builder.getInt8Ty(), "trunc");
+                if (value->getType()->isIntegerTy()) {
+                    return builder.CreateIntCast(value, builder.getInt8Ty(), true, "int8cast");
+                }
+                return value;
             }
             return castToInt(value, from);
         }
@@ -1101,16 +1139,35 @@ private:
                 }
 
                 auto* fty = llvm::cast<llvm::FunctionType>(llvmType(funcType));
+                if (funcType.params.size() != fty->getNumParams()) {
+                    report("internal error: function parameter mismatch");
+                    ev.type = makeError();
+                    return ev;
+                }
                 std::vector<llvm::Value*> args;
                 for (size_t i = 1; i < kids.size(); ++i) {
                     ExprValue arg = codegenExpr(kids.at(i));
+                    if (!arg.value) {
+                        ev.type = makeError();
+                        return ev;
+                    }
                     if (i - 1 < funcType.params.size()) {
                         llvm::Value* coerced = coerceValue(arg.value, arg.type, funcType.params[i - 1],
                                                            arg.isNullPtrConst);
+                        if (!coerced || coerced->getType()->isVoidTy()) {
+                            report("invalid function argument");
+                            ev.type = makeError();
+                            return ev;
+                        }
                         args.push_back(coerced);
                     } else {
                         args.push_back(arg.value);
                     }
+                }
+                if (args.size() != fty->getNumParams()) {
+                    report("argument count mismatch");
+                    ev.type = makeError();
+                    return ev;
                 }
 
                 llvm::CallInst* call = builder.CreateCall(fty, calleeVal, args,
@@ -1395,6 +1452,10 @@ private:
                 const auto& kids = node->getChildren();
                 ExprValue lhs = codegenExpr(kids.at(0));
                 llvm::Value* lhsBool = castToBool(lhs.value, lhs.type);
+                if (!lhsBool) {
+                    ev.type = makeError();
+                    return ev;
+                }
                 llvm::BasicBlock* lhsBlock = builder.GetInsertBlock();
                 llvm::BasicBlock* rhsBlock = llvm::BasicBlock::Create(context, "logic.rhs", currentFunction);
                 llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(context, "logic.end", currentFunction);
@@ -1407,6 +1468,10 @@ private:
                 builder.SetInsertPoint(rhsBlock);
                 ExprValue rhs = codegenExpr(kids.at(1));
                 llvm::Value* rhsBool = castToBool(rhs.value, rhs.type);
+                if (!rhsBool) {
+                    ev.type = makeError();
+                    return ev;
+                }
                 llvm::BasicBlock* rhsEnd = builder.GetInsertBlock();
                 if (!rhsEnd->getTerminator()) {
                     builder.CreateBr(endBlock);
@@ -1429,6 +1494,10 @@ private:
                 const auto& kids = node->getChildren();
                 ExprValue cond = codegenExpr(kids.at(0));
                 llvm::Value* condBool = castToBool(cond.value, cond.type);
+                if (!condBool) {
+                    ev.type = makeError();
+                    return ev;
+                }
                 llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(context, "ternary.then", currentFunction);
                 llvm::BasicBlock* elseBlock = llvm::BasicBlock::Create(context, "ternary.else", currentFunction);
                 llvm::BasicBlock* endBlock = llvm::BasicBlock::Create(context, "ternary.end", currentFunction);
@@ -1491,6 +1560,11 @@ private:
                 }
                 ExprValue rhs = codegenExpr(kids.at(1));
                 llvm::Value* rhsVal = coerceValue(rhs.value, rhs.type, ltype, rhs.isNullPtrConst);
+                if (!rhsVal || rhsVal->getType()->isVoidTy()) {
+                    report("invalid assignment value");
+                    ev.type = makeError();
+                    return ev;
+                }
                 builder.CreateStore(rhsVal, addr);
                 ev.type = ltype;
                 ev.value = rhsVal;
@@ -1608,7 +1682,8 @@ private:
 
     bool codegenStmtExpr(const ast::StmtExpr& stmt) {
         if (stmt.expr.has_value()) {
-            (void)codegenExpr(stmt.expr->root);
+            ExprValue value = codegenExpr(stmt.expr->root);
+            if (isError(value.type)) return false;
         }
         return true;
     }
@@ -1616,6 +1691,7 @@ private:
     bool codegenIf(const ast::StmtIf& stmt) {
         ExprValue cond = codegenExpr(stmt.condition.root);
         llvm::Value* condBool = castToBool(cond.value, cond.type);
+        if (!condBool) return false;
         llvm::BasicBlock* thenBlock = llvm::BasicBlock::Create(context, "if.then", currentFunction);
         llvm::BasicBlock* elseBlock = nullptr;
         llvm::BasicBlock* mergeBlock = llvm::BasicBlock::Create(context, "if.end", currentFunction);
@@ -1650,6 +1726,7 @@ private:
         builder.SetInsertPoint(condBlock);
         ExprValue cond = codegenExpr(stmt.condition.root);
         llvm::Value* condBool = castToBool(cond.value, cond.type);
+        if (!condBool) return false;
         builder.CreateCondBr(condBool, bodyBlock, endBlock);
 
         loopStack.push_back(LoopContext{endBlock, condBlock});
@@ -1683,7 +1760,6 @@ private:
             return false;
         }
         builder.CreateBr(it->second);
-        ensureBlock();
         return true;
     }
 
@@ -1693,7 +1769,6 @@ private:
             return false;
         }
         builder.CreateBr(loopStack.back().continueBlock);
-        ensureBlock();
         return true;
     }
 
@@ -1703,7 +1778,6 @@ private:
             return false;
         }
         builder.CreateBr(loopStack.back().breakBlock);
-        ensureBlock();
         return true;
     }
 
@@ -1732,7 +1806,6 @@ private:
                 builder.CreateRet(llvm::ConstantInt::get(builder.getInt32Ty(), 0));
             }
         }
-        ensureBlock();
         return true;
     }
 };

@@ -70,6 +70,9 @@ static bool typeEqual(const Type& a, const Type& b) {
 
 static bool valueCompatible(const Type& target, const Type& source) {
     if (isInteger(target) && isInteger(source)) return true;
+    if (isPointer(target) && isFunction(source)) {
+        return typeEqual(*target.pointee, source);
+    }
     return typeEqual(target, source);
 }
 
@@ -288,6 +291,10 @@ private:
                     paramType = applyDeclarator(paramType, *param.declarator);
                 } else if (param.abstractDeclarator) {
                     paramType = applyAbstractDeclarator(paramType, *param.abstractDeclarator);
+                }
+                if (paramType.kind == Type::Kind::Function) {
+                    // C adjusts function parameters to pointers-to-function.
+                    paramType = makePointer(paramType);
                 }
                 paramTypes.push_back(paramType);
             }
