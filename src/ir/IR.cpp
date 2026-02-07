@@ -65,6 +65,7 @@ static bool isError(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Error;
 static bool isStruct(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Struct; }
 static bool isPointer(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Pointer; }
 static bool isFunction(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Function; }
+static bool isVoid(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Void; }
 static bool isInteger(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Int || t.kind == TypeDesc::Kind::Char; }
 
 static bool typeEqual(const TypeDesc& a, const TypeDesc& b) {
@@ -971,7 +972,9 @@ private:
         ev.address = addr;
         ev.type = type;
         ev.isLvalue = true;
-        ev.value = builder.CreateLoad(llvmType(type), addr, "loadtmp");
+        if (!isVoid(type)) {
+            ev.value = builder.CreateLoad(llvmType(type), addr, "loadtmp");
+        }
         return ev;
     }
 
@@ -987,7 +990,7 @@ private:
     }
 
     llvm::Value* sizeOfType(const TypeDesc& type) {
-        if (type.kind == TypeDesc::Kind::Void) {
+        if (type.kind == TypeDesc::Kind::Void || type.kind == TypeDesc::Kind::Function) {
             return llvm::ConstantInt::get(builder.getInt64Ty(), 0);
         }
         llvm::Type* objTy = llvmType(type);
@@ -1073,7 +1076,10 @@ private:
                 }
                 TypeDesc elemType = *base.type.pointee;
                 llvm::Value* indexVal = castToIndex(idx.value, idx.type);
-                llvm::Value* addr = builder.CreateGEP(llvmType(elemType), base.value, indexVal, "elemaddr");
+                llvm::Type* gepElemTy = (elemType.kind == TypeDesc::Kind::Void || elemType.kind == TypeDesc::Kind::Function)
+                    ? builder.getInt8Ty()
+                    : llvmType(elemType);
+                llvm::Value* addr = builder.CreateGEP(gepElemTy, base.value, indexVal, "elemaddr");
                 return makeLValue(addr, elemType);
             }
             case functioncall: {
@@ -1238,7 +1244,11 @@ private:
                 if (isPointer(ltype)) {
                     llvm::Value* oldVal = builder.CreateLoad(llvmValueType(ltype), addr, "oldptr");
                     llvm::Value* idxVal = llvm::ConstantInt::get(builder.getInt64Ty(), delta);
-                    llvm::Value* newVal = builder.CreateGEP(llvmType(*ltype.pointee), oldVal, idxVal, "ptrinc");
+                    llvm::Type* gepElemTy =
+                        (ltype.pointee->kind == TypeDesc::Kind::Void || ltype.pointee->kind == TypeDesc::Kind::Function)
+                            ? builder.getInt8Ty()
+                            : llvmType(*ltype.pointee);
+                    llvm::Value* newVal = builder.CreateGEP(gepElemTy, oldVal, idxVal, "ptrinc");
                     builder.CreateStore(newVal, addr);
                     ev.type = ltype;
                     ev.value = isPost ? oldVal : newVal;
@@ -1294,13 +1304,21 @@ private:
                 if (isPointer(lhs.type) && isInteger(rhs.type)) {
                     llvm::Value* idx = castToIndex(rhs.value, rhs.type);
                     if (isSub) idx = builder.CreateNeg(idx, "idxneg");
-                    ev.value = builder.CreateGEP(llvmType(*lhs.type.pointee), lhs.value, idx, "ptrarith");
+                    llvm::Type* gepElemTy =
+                        (lhs.type.pointee->kind == TypeDesc::Kind::Void || lhs.type.pointee->kind == TypeDesc::Kind::Function)
+                            ? builder.getInt8Ty()
+                            : llvmType(*lhs.type.pointee);
+                    ev.value = builder.CreateGEP(gepElemTy, lhs.value, idx, "ptrarith");
                     ev.type = lhs.type;
                     return ev;
                 }
                 if (!isSub && isPointer(rhs.type) && isInteger(lhs.type)) {
                     llvm::Value* idx = castToIndex(lhs.value, lhs.type);
-                    ev.value = builder.CreateGEP(llvmType(*rhs.type.pointee), rhs.value, idx, "ptrarith");
+                    llvm::Type* gepElemTy =
+                        (rhs.type.pointee->kind == TypeDesc::Kind::Void || rhs.type.pointee->kind == TypeDesc::Kind::Function)
+                            ? builder.getInt8Ty()
+                            : llvmType(*rhs.type.pointee);
+                    ev.value = builder.CreateGEP(gepElemTy, rhs.value, idx, "ptrarith");
                     ev.type = rhs.type;
                     return ev;
                 }
@@ -1308,7 +1326,10 @@ private:
                     llvm::Value* lptr = builder.CreatePtrToInt(lhs.value, builder.getInt64Ty(), "lptr");
                     llvm::Value* rptr = builder.CreatePtrToInt(rhs.value, builder.getInt64Ty(), "rptr");
                     llvm::Value* diff = builder.CreateSub(lptr, rptr, "ptrdiff");
-                    llvm::Value* elemSize = sizeOfType(*lhs.type.pointee);
+                    llvm::Value* elemSize =
+                        (lhs.type.pointee->kind == TypeDesc::Kind::Void || lhs.type.pointee->kind == TypeDesc::Kind::Function)
+                            ? llvm::ConstantInt::get(builder.getInt64Ty(), 1)
+                            : sizeOfType(*lhs.type.pointee);
                     llvm::Value* div = builder.CreateSDiv(diff, elemSize, "ptrdiv");
                     ev.value = builder.CreateTrunc(div, builder.getInt32Ty(), "ptrdiff32");
                     ev.type = makeInt();
@@ -1434,14 +1455,25 @@ private:
                 }
 
                 builder.SetInsertPoint(thenEnd);
-                llvm::Value* tcoerced = coerceValue(tval.value, tval.type, resultType, tval.isNullPtrConst);
+                llvm::Value* tcoerced = nullptr;
+                if (resultType.kind != TypeDesc::Kind::Void) {
+                    tcoerced = coerceValue(tval.value, tval.type, resultType, tval.isNullPtrConst);
+                }
                 if (!thenEnd->getTerminator()) builder.CreateBr(endBlock);
 
                 builder.SetInsertPoint(elseEnd);
-                llvm::Value* fcoerced = coerceValue(fval.value, fval.type, resultType, fval.isNullPtrConst);
+                llvm::Value* fcoerced = nullptr;
+                if (resultType.kind != TypeDesc::Kind::Void) {
+                    fcoerced = coerceValue(fval.value, fval.type, resultType, fval.isNullPtrConst);
+                }
                 if (!elseEnd->getTerminator()) builder.CreateBr(endBlock);
 
                 builder.SetInsertPoint(endBlock);
+                if (resultType.kind == TypeDesc::Kind::Void) {
+                    ev.type = makeVoid();
+                    ev.value = nullptr;
+                    return ev;
+                }
                 llvm::PHINode* phi = builder.CreatePHI(llvmValueType(resultType), 2, "ternphi");
                 phi->addIncoming(tcoerced, thenEnd);
                 phi->addIncoming(fcoerced, elseEnd);
@@ -1520,7 +1552,10 @@ private:
                 }
                 outType = *base.type.pointee;
                 llvm::Value* indexVal = castToIndex(idx.value, idx.type);
-                return builder.CreateGEP(llvmType(outType), base.value, indexVal, "elemaddr");
+                llvm::Type* gepElemTy = (outType.kind == TypeDesc::Kind::Void || outType.kind == TypeDesc::Kind::Function)
+                    ? builder.getInt8Ty()
+                    : llvmType(outType);
+                return builder.CreateGEP(gepElemTy, base.value, indexVal, "elemaddr");
             }
             case memberaccess: {
                 const auto& kids = node->getChildren();
@@ -1673,13 +1708,29 @@ private:
     }
 
     bool codegenReturn(const ast::StmtReturn& stmt) {
-        if (stmt.expr.has_value()) {
-            ExprValue value = codegenExpr(stmt.expr->root);
-            llvm::Value* coerced = coerceValue(value.value, value.type, currentReturnType,
-                                               value.isNullPtrConst);
-            builder.CreateRet(coerced);
-        } else {
+        if (currentReturnType.kind == TypeDesc::Kind::Void) {
+            if (stmt.expr.has_value()) {
+                (void)codegenExpr(stmt.expr->root); // evaluate side effects
+            }
             builder.CreateRetVoid();
+        } else {
+            if (stmt.expr.has_value()) {
+                ExprValue value = codegenExpr(stmt.expr->root);
+                llvm::Value* coerced = coerceValue(value.value, value.type, currentReturnType,
+                                                   value.isNullPtrConst);
+                if (!coerced || coerced->getType()->isVoidTy()) {
+                    report("invalid return value");
+                    return false;
+                }
+                builder.CreateRet(coerced);
+            } else if (currentReturnType.kind == TypeDesc::Kind::Pointer) {
+                builder.CreateRet(llvm::ConstantPointerNull::get(
+                    llvm::cast<llvm::PointerType>(llvmValueType(currentReturnType))));
+            } else if (currentReturnType.kind == TypeDesc::Kind::Char) {
+                builder.CreateRet(llvm::ConstantInt::get(builder.getInt8Ty(), 0));
+            } else {
+                builder.CreateRet(llvm::ConstantInt::get(builder.getInt32Ty(), 0));
+            }
         }
         ensureBlock();
         return true;
