@@ -67,6 +67,12 @@ static bool isPointer(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Poin
 static bool isFunction(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Function; }
 static bool isVoid(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Void; }
 static bool isInteger(const TypeDesc& t) { return t.kind == TypeDesc::Kind::Int || t.kind == TypeDesc::Kind::Char; }
+static bool isFunctionPointer(const TypeDesc& t) { return isPointer(t) && t.pointee && isFunction(*t.pointee); }
+static bool isVoidPointer(const TypeDesc& t) { return isPointer(t) && t.pointee && isVoid(*t.pointee); }
+static bool isVoidPtrCompatiblePair(const TypeDesc& a, const TypeDesc& b) {
+    return (isVoidPointer(a) || isVoidPointer(b)) &&
+        !isFunctionPointer(a) && !isFunctionPointer(b);
+}
 
 static bool typeEqual(const TypeDesc& a, const TypeDesc& b) {
     if (isError(a) || isError(b)) return true;
@@ -94,6 +100,11 @@ static bool typeEqual(const TypeDesc& a, const TypeDesc& b) {
 
 static bool valueCompatible(const TypeDesc& target, const TypeDesc& source) {
     if (isInteger(target) && isInteger(source)) return true;
+    if (isPointer(target) && isPointer(source)) {
+        if (typeEqual(*target.pointee, *source.pointee)) return true;
+        if (isVoidPtrCompatiblePair(target, source)) return true;
+        return false;
+    }
     if (isPointer(target) && isFunction(source)) {
         return typeEqual(*target.pointee, source);
     }
@@ -1516,6 +1527,9 @@ private:
                 if (valueCompatible(tval.type, fval.type) && valueCompatible(fval.type, tval.type)) {
                     if (isInteger(tval.type) && isInteger(fval.type)) {
                         resultType = makeInt();
+                    } else if (isPointer(tval.type) && isPointer(fval.type) &&
+                               isVoidPtrCompatiblePair(tval.type, fval.type)) {
+                        resultType = makePointer(makeVoid());
                     }
                 } else if (isPointer(tval.type) && fval.isNullPtrConst) {
                     resultType = tval.type;

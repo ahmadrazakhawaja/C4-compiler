@@ -43,6 +43,13 @@ static bool isPointer(const Type& t) { return t.kind == Type::Kind::Pointer; }
 static bool isFunction(const Type& t) { return t.kind == Type::Kind::Function; }
 static bool isInteger(const Type& t) { return t.kind == Type::Kind::Int || t.kind == Type::Kind::Char; }
 static bool isScalar(const Type& t) { return isInteger(t) || isPointer(t); }
+static bool isVoidType(const Type& t) { return t.kind == Type::Kind::Void; }
+static bool isFunctionPointer(const Type& t) { return isPointer(t) && t.pointee && isFunction(*t.pointee); }
+static bool isVoidPointer(const Type& t) { return isPointer(t) && t.pointee && isVoidType(*t.pointee); }
+static bool isVoidPtrCompatiblePair(const Type& a, const Type& b) {
+    return (isVoidPointer(a) || isVoidPointer(b)) &&
+        !isFunctionPointer(a) && !isFunctionPointer(b);
+}
 
 static bool typeEqual(const Type& a, const Type& b) {
     if (isError(a) || isError(b)) return true;
@@ -70,6 +77,11 @@ static bool typeEqual(const Type& a, const Type& b) {
 
 static bool valueCompatible(const Type& target, const Type& source) {
     if (isInteger(target) && isInteger(source)) return true;
+    if (isPointer(target) && isPointer(source)) {
+        if (typeEqual(*target.pointee, *source.pointee)) return true;
+        if (isVoidPtrCompatiblePair(target, source)) return true;
+        return false;
+    }
     if (isPointer(target) && isFunction(source)) {
         return typeEqual(*target.pointee, source);
     }
@@ -811,7 +823,9 @@ private:
                 auto lhs = analyzeExpr(node->getChildren().at(0));
                 auto rhs = analyzeExpr(node->getChildren().at(1));
                 if (!(isInteger(lhs.type) && isInteger(rhs.type)) &&
-                    !(isPointer(lhs.type) && isPointer(rhs.type) && typeEqual(*lhs.type.pointee, *rhs.type.pointee))) {
+                    !(isPointer(lhs.type) && isPointer(rhs.type) &&
+                        (typeEqual(*lhs.type.pointee, *rhs.type.pointee) ||
+                            isVoidPtrCompatiblePair(lhs.type, rhs.type)))) {
                     report(info.loc, "invalid operands to '<'");
                 }
                 info.type = makeInt();
@@ -825,6 +839,8 @@ private:
                 if (isInteger(lhs.type) && isInteger(rhs.type)) okTypes = true;
                 if (isPointer(lhs.type) && isPointer(rhs.type) &&
                     typeEqual(*lhs.type.pointee, *rhs.type.pointee)) okTypes = true;
+                if (isPointer(lhs.type) && isPointer(rhs.type) &&
+                    isVoidPtrCompatiblePair(lhs.type, rhs.type)) okTypes = true;
                 if (isPointer(lhs.type) && rhs.isNullPtrConst) okTypes = true;
                 if (isPointer(rhs.type) && lhs.isNullPtrConst) okTypes = true;
                 if (!okTypes) report(info.loc, "invalid operands to equality operator");
@@ -849,6 +865,9 @@ private:
                 if (valueCompatible(tval.type, fval.type) && valueCompatible(fval.type, tval.type)) {
                     if (isInteger(tval.type) && isInteger(fval.type)) {
                         info.type = makeInt();
+                    } else if (isPointer(tval.type) && isPointer(fval.type) &&
+                               isVoidPtrCompatiblePair(tval.type, fval.type)) {
+                        info.type = makePointer(makeVoid());
                     } else {
                         info.type = tval.type;
                     }
