@@ -84,6 +84,7 @@ struct AbstractDeclarator {
 struct Decl {
     TypeSpec type;
     std::optional<Declarator> declarator;
+    bool isExtern = false;
 };
 
 struct StmtCompound {
