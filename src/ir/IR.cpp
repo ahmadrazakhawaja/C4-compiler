@@ -819,7 +819,6 @@ private:
                     return false;
                 }
                 if (!decl.isExtern && gv->isDeclaration()) {
-                    gv->setLinkage(llvm::GlobalValue::CommonLinkage);
                     gv->setInitializer(llvm::Constant::getNullValue(objTy));
                 }
                 existing->second.type = full;
@@ -827,13 +826,11 @@ private:
             }
 
             llvm::Constant* init = nullptr;
-            llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
             if (!decl.isExtern) {
                 init = llvm::Constant::getNullValue(objTy);
-                linkage = llvm::GlobalValue::CommonLinkage;
             }
             auto* gv = new llvm::GlobalVariable(*module, objTy, false,
-                                                linkage,
+                                                llvm::GlobalValue::ExternalLinkage,
                                                 init, name);
             SymbolValue sym;
             sym.type = full;

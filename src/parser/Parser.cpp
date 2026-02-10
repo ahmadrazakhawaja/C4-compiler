@@ -53,86 +53,6 @@ static bool isStatementStart(const Token& tok, const Token& nextTok) {
     return false;
 }
 
-static bool isBuiltinTypeName(const std::string& v) {
-    return v == "void" || v == "char" || v == "int";
-}
-
-static bool isTypeStartToken(const Token& tok) {
-    return isBuiltinTypeName(tok.getValue()) || tok.getValue() == "struct";
-}
-
-static Node::Ptr buildPointerTailNode(int extraStars) {
-    Node::Ptr tail = Node::make(pointer_);
-    if (extraStars <= 0) {
-        return tail;
-    }
-    tail->addChild("*");
-    tail->addChild(buildPointerTailNode(extraStars - 1));
-    return tail;
-}
-
-static Node::Ptr buildPointerNode(int stars) {
-    Node::Ptr ptr = Node::make(pointer);
-    ptr->addChild("*");
-    ptr->addChild(buildPointerTailNode(stars - 1));
-    return ptr;
-}
-
-// Build a minimal `type` subtree for sizeof(type-name) from the consumed tokens.
-// Supports the forms used by backend tests: builtin/struct plus optional pointer stars.
-static Node::Ptr buildSizeofTypeNode(const std::vector<Token>& toks) {
-    if (toks.empty()) return nullptr;
-
-    size_t i = 0;
-    Node::Ptr typeNode = Node::make(type);
-
-    if (isBuiltinTypeName(toks[i].getValue())) {
-        typeNode->addChild(Node::makeTerminal(toks[i].getValue()));
-        ++i;
-    } else if (toks[i].getValue() == "struct") {
-        Node::Ptr st = Node::make(structtype);
-        st->addChild("struct");
-        ++i;
-        if (i >= toks.size() || toks[i].getTokenType() != "identifier") {
-            return nullptr;
-        }
-        st->addChild(Node::make(id, toks[i]));
-        ++i;
-        // Inline struct definitions in sizeof(type-name) are not supported.
-        if (i < toks.size() && toks[i].getValue() == "{") {
-            return nullptr;
-        }
-        typeNode->addChild(st);
-    } else {
-        return nullptr;
-    }
-
-    if (i == toks.size()) {
-        return typeNode;
-    }
-
-    // Accept simple pointer declarators, with optional grouping parentheses.
-    int stars = 0;
-    for (; i < toks.size(); ++i) {
-        const std::string v = toks[i].getValue();
-        if (v == "*") {
-            ++stars;
-            continue;
-        }
-        if (v == "(" || v == ")") {
-            continue;
-        }
-        return nullptr;
-    }
-    if (stars <= 0) return nullptr;
-
-    Node::Ptr ad = Node::make(abstractdeclarator);
-    ad->addChild(buildPointerNode(stars));
-    ad->addChild(Node::make(abstractdeclarator_)); // epsilon
-    typeNode->addChild(ad);
-    return typeNode;
-}
-
 // -------------------------
 // Constructor
 // -------------------------
@@ -440,49 +360,41 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
 
         // sizeof(type) special case (kept structurally similar)
         if (tok.getValue() == "sizeof") {
-            if (peekExpr(1).getValue() == "(" && isTypeStartToken(peekExpr(2))) {
+            if (peekExpr(1).getValue() == "(") {
+                std::string t2 = peekExpr(2).getValue();
+                if (t2 == "void" || t2 == "char" || t2 == "int" || t2 == "struct") {
                     // consume sizeof
                     remTokensExpressionIndex++;
                     remRevExprSymbols.push_back(Node::makeTerminal("sizeof"));
                     // consume "("
                     remTokensExpressionIndex++;
                     remRevExprSymbols.push_back(Node::makeTerminal("("));
-                    std::vector<Token> typeTokens;
 
-                    int open = 1;
-                    while (open > 0) {
-                        Token t = peekExpr(0);
-                        if (t.getValue() == "EOF") {
-                            noteError(t);
-                            return std::nullopt;
-                        }
-
-                        if (t.getValue() == "(") {
-                            open++;
-                        } else if (t.getValue() == ")") {
-                            open--;
-                        }
-
-                        if (open > 0) {
-                            typeTokens.push_back(t);
-                            remRevExprSymbols.push_back(Node::makeTerminal(t.getValue()));
-                        } else {
-                            remRevExprSymbols.push_back(Node::makeTerminal(")"));
-                        }
-                        remTokensExpressionIndex++;
-                    }
-
-                    Node::Ptr typeNode = buildSizeofTypeNode(typeTokens);
-                    if (!typeNode) {
-                        noteError(typeTokens.empty() ? tok : typeTokens.front());
-                        return std::nullopt;
-                    }
+                    auto typeNode = Node::make(type);
+                    remRevExprSymbols.push_back(typeNode);
 
                     auto sizeNode = Node::make(sizeoperator);
                     sizeNode->addChild(typeNode);
                     argStack.push_back(sizeNode);
-                    isExpectArg = false;
+
+                    isExpectArg = true;
+
+                    int open = 1;
+                    while (open > 0) {
+                        Token t = peekExpr(0);
+                        if (t.getValue() == "(") open++;
+                        else if (t.getValue() == ")") open--;
+                        else if (t.getValue() == "EOF") {
+                            noteError(t);
+                            return std::nullopt;
+                        }
+                        remTokensExpressionIndex++;
+                    }
+
+                    // closing ')' was consumed by the loop above
+                    remRevExprSymbols.push_back(Node::makeTerminal(")"));
                     continue;
+                }
             }
         }
 
