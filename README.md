@@ -77,4 +77,4 @@ replace escape sequences in the output
 Do not intermingle lexing with the output of the tokens. The interface to read tokens will be used again by
 the parser. (so lexer prob returns a Vec<Token> or sth like that. Not test.c:1:1: constant 42)
 It will prove helpful in the following phase to end the token stream of your lexer with a (not printed) end
-of-file token.
+of-file token
