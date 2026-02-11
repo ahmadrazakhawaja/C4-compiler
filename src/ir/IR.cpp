@@ -17,6 +17,7 @@
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
@@ -524,6 +525,8 @@ public:
     }
 
     bool writeToFile(const std::string& inputPath) {
+        scrubGEPFlagsForCompat();
+
         std::string verifyMsg;
         llvm::raw_string_ostream verifyStream(verifyMsg);
         if (llvm::verifyModule(*module, &verifyStream)) {
@@ -558,6 +561,19 @@ private:
 
     void report(const std::string& msg) {
         err << "error: " << msg << "\n";
+    }
+
+    void scrubGEPFlagsForCompat() {
+        for (llvm::Function& fn : *module) {
+            for (llvm::BasicBlock& bb : fn) {
+                for (llvm::Instruction& inst : bb) {
+                    auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(&inst);
+                    if (!gep) continue;
+                    gep->setNoWrapFlags(llvm::GEPNoWrapFlags::none());
+                    gep->setIsInBounds(false);
+                }
+            }
+        }
     }
 
     void pushScope() { scopes.emplace_back(); }
