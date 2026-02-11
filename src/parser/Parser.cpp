@@ -761,6 +761,9 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case type:
+            // sizeof(type) may pre-populate this node with captured terminal tokens.
+            // In that case, do not expand using the regular declaration grammar again.
+            if (!symbol->getChildren().empty()) return symbol;
             if (next.getValue() == "void") { symbol->addChild("void"); return symbol; }
             if (next.getValue() == "char") { symbol->addChild("char"); return symbol; }
             if (next.getValue() == "int")  { symbol->addChild("int");  return symbol; }
