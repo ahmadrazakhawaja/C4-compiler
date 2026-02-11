@@ -942,6 +942,45 @@ private:
 
     void checkTypeNode(const Node::Ptr& typeNode) {
         if (!typeNode || typeNode->getType() != type || typeNode->getChildren().empty()) return;
+
+        bool flatTerminals = true;
+        for (const auto& childNode : typeNode->getChildren()) {
+            if (!childNode || childNode->getType() != terminal || !childNode->getToken().has_value()) {
+                flatTerminals = false;
+                break;
+            }
+        }
+        if (flatTerminals) {
+            std::vector<Token> toks;
+            toks.reserve(typeNode->getChildren().size());
+            for (const auto& childNode : typeNode->getChildren()) {
+                toks.push_back(*childNode->getToken());
+            }
+            if (toks.empty() || toks.at(0).getValue() != "struct") return;
+            if (toks.size() < 2 || toks.at(1).getTokenType() != "identifier") {
+                SourceLocation loc = locFromNode(typeNode->getChildren().front());
+                report(loc, "anonymous structs are not supported");
+                return;
+            }
+            const std::string name = toks.at(1).getValue();
+
+            bool hasInlineDefinition = false;
+            bool pointerLike = false;
+            for (size_t i = 2; i < toks.size(); ++i) {
+                const std::string& v = toks.at(i).getValue();
+                if (v == "{") hasInlineDefinition = true;
+                if (v == "*" || v == "[") pointerLike = true;
+            }
+            if (hasInlineDefinition || pointerLike) return;
+
+            auto it = structs.find(name);
+            if (it == structs.end() || !it->second.defined) {
+                SourceLocation loc = locFromNode(typeNode->getChildren().at(1));
+                report(loc, "use of incomplete struct '" + name + "'");
+            }
+            return;
+        }
+
         const auto& child = typeNode->getChildren().front();
         if (child->getType() != structtype) return;
 

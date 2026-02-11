@@ -371,7 +371,6 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
                     remRevExprSymbols.push_back(Node::makeTerminal("("));
 
                     auto typeNode = Node::make(type);
-                    remRevExprSymbols.push_back(typeNode);
 
                     auto sizeNode = Node::make(sizeoperator);
                     sizeNode->addChild(typeNode);
@@ -382,12 +381,34 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
                     int open = 1;
                     while (open > 0) {
                         Token t = peekExpr(0);
-                        if (t.getValue() == "(") open++;
-                        else if (t.getValue() == ")") open--;
-                        else if (t.getValue() == "EOF") {
+                        if (t.getValue() == "EOF") {
                             noteError(t);
                             return std::nullopt;
                         }
+
+                        if (t.getValue() == "(") {
+                            open++;
+                            // nested parentheses belong to the type name
+                            typeNode->addChild(Node::make(terminal, t));
+                            remRevExprSymbols.push_back(Node::make(terminal, t));
+                            remTokensExpressionIndex++;
+                            continue;
+                        }
+                        if (t.getValue() == ")") {
+                            open--;
+                            remTokensExpressionIndex++;
+                            if (open == 0) {
+                                break; // this ')' closes sizeof(...)
+                            }
+                            // nested ')' belongs to the type name
+                            typeNode->addChild(Node::make(terminal, t));
+                            remRevExprSymbols.push_back(Node::make(terminal, t));
+                            continue;
+                        }
+
+                        // all inner tokens are part of the type-name.
+                        typeNode->addChild(Node::make(terminal, t));
+                        remRevExprSymbols.push_back(Node::make(terminal, t));
                         remTokensExpressionIndex++;
                     }
 

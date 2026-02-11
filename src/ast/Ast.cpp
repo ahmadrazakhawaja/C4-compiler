@@ -206,6 +206,26 @@ static Node::Ptr findFirstNodeOfType(const Node::Ptr& node, Symbol sym) {
 
 static std::string renderTypeNameFromTypeNode(const Node::Ptr& typeNode) {
     if (!typeNode || typeNode->getType() != type) return "";
+    bool flatTerminals = !typeNode->getChildren().empty();
+    for (const auto& child : typeNode->getChildren()) {
+        if (!child || child->getType() != terminal || !child->getToken().has_value()) {
+            flatTerminals = false;
+            break;
+        }
+    }
+    if (flatTerminals) {
+        std::ostringstream ss;
+        std::string prev;
+        for (const auto& child : typeNode->getChildren()) {
+            const std::string v = child->getToken()->getValue();
+            const bool noSpaceBefore = (v == ")" || v == "]" || v == ",");
+            const bool noSpaceAfterPrev = (prev == "(" || prev == "[");
+            if (!prev.empty() && !noSpaceBefore && !noSpaceAfterPrev) ss << " ";
+            ss << v;
+            prev = v;
+        }
+        return ss.str();
+    }
     TypeSpec ts = buildType(typeNode);
     std::ostringstream ss;
     ss << renderTypeInlineFull(ts);

@@ -704,8 +704,128 @@ private:
         return current;
     }
 
+    static bool isFlatTypeTokenNode(const Node::Ptr& typeNode) {
+        if (!typeNode || typeNode->getType() != type) return false;
+        if (typeNode->getChildren().empty()) return false;
+        for (const auto& child : typeNode->getChildren()) {
+            if (!child || child->getType() != terminal || !child->getToken().has_value()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    TypeDesc typeFromFlatTypeNode(const Node::Ptr& typeNode) {
+        const auto& kids = typeNode->getChildren();
+        if (kids.empty()) return makeError();
+
+        std::vector<Token> toks;
+        toks.reserve(kids.size());
+        for (const auto& child : kids) {
+            if (!child->getToken().has_value()) continue;
+            toks.push_back(*child->getToken());
+        }
+        if (toks.empty()) return makeError();
+
+        size_t i = 0;
+        TypeDesc base = makeError();
+        const std::string& first = toks.at(i).getValue();
+        if (first == "void") {
+            base = makeVoid();
+            ++i;
+        } else if (first == "char") {
+            base = makeChar();
+            ++i;
+        } else if (first == "int") {
+            base = makeInt();
+            ++i;
+        } else if (first == "struct") {
+            ++i;
+            if (i >= toks.size() || toks.at(i).getTokenType() != "identifier") {
+                report("anonymous structs are not supported");
+                return makeError();
+            }
+            const std::string name = toks.at(i).getValue();
+            base = makeStruct(name);
+            ++i;
+
+            // Skip inline struct definition tokens if present.
+            if (i < toks.size() && toks.at(i).getValue() == "{") {
+                int depth = 0;
+                while (i < toks.size()) {
+                    const std::string& v = toks.at(i).getValue();
+                    if (v == "{") depth++;
+                    else if (v == "}") {
+                        depth--;
+                        if (depth == 0) {
+                            ++i;
+                            break;
+                        }
+                    }
+                    ++i;
+                }
+                if (depth != 0) {
+                    report("invalid struct type in sizeof");
+                    return makeError();
+                }
+            }
+        } else {
+            report("invalid type in sizeof");
+            return makeError();
+        }
+
+        int pointerDepth = 0;
+        bool hasFunctionSuffix = false;
+        while (i < toks.size()) {
+            const std::string& v = toks.at(i).getValue();
+            if (v == "*") {
+                pointerDepth++;
+                ++i;
+                continue;
+            }
+            if (v == "[") {
+                // Array declarators decay to pointers in this frontend model.
+                pointerDepth++;
+                int depth = 1;
+                ++i;
+                while (i < toks.size() && depth > 0) {
+                    const std::string& inner = toks.at(i).getValue();
+                    if (inner == "[") depth++;
+                    else if (inner == "]") depth--;
+                    ++i;
+                }
+                continue;
+            }
+            if (v == "(") {
+                int depth = 1;
+                ++i;
+                while (i < toks.size() && depth > 0) {
+                    const std::string& inner = toks.at(i).getValue();
+                    if (inner == "(") depth++;
+                    else if (inner == ")") depth--;
+                    ++i;
+                }
+                hasFunctionSuffix = true;
+                continue;
+            }
+            ++i;
+        }
+
+        TypeDesc current = base;
+        for (int p = 0; p < pointerDepth; ++p) {
+            current = makePointer(current);
+        }
+        if (hasFunctionSuffix && pointerDepth == 0) {
+            current = makeFunction(current, {});
+        }
+        return current;
+    }
+
     TypeDesc typeFromTypeNode(const Node::Ptr& typeNode) {
         if (!typeNode || typeNode->getType() != type) return makeError();
+        if (isFlatTypeTokenNode(typeNode)) {
+            return typeFromFlatTypeNode(typeNode);
+        }
         ast::TypeSpec ts = buildTypeSpecFromNode(typeNode);
         TypeDesc base = typeFromTypeSpec(ts);
         Node::Ptr adNode = findFirstNodeOfType(typeNode, abstractdeclarator);
