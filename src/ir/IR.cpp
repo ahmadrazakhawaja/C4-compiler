@@ -1,6 +1,7 @@
 #include "IR.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -749,6 +750,360 @@ private:
         return llvmType(t);
     }
 
+    bool isCompleteObjectType(const TypeDesc& t) {
+        switch (t.kind) {
+            case TypeDesc::Kind::Char:
+            case TypeDesc::Kind::Int:
+            case TypeDesc::Kind::Pointer:
+                return true;
+            case TypeDesc::Kind::Struct: {
+                auto it = structs.find(t.structName);
+                return it != structs.end() && it->second.defined;
+            }
+            case TypeDesc::Kind::Void:
+            case TypeDesc::Kind::Function:
+            case TypeDesc::Kind::Error:
+                return false;
+        }
+        return false;
+    }
+
+    bool tryStringLiteralSize(const Node::Ptr& node, uint64_t& outSize) {
+        Node::Ptr current = node;
+        while (current && current->getType() == parenthesizedexpr && !current->getChildren().empty()) {
+            current = current->getChildren().front();
+        }
+        if (!current || current->getType() != stringliteral || !current->getToken().has_value()) {
+            return false;
+        }
+        std::string parsed = parseStringLiteral(current->getToken()->getValue());
+        outSize = static_cast<uint64_t>(parsed.size() + 1); // include trailing '\0'
+        return true;
+    }
+
+    bool inferExprType(const Node::Ptr& node, TypeDesc& outType, bool& outNullPtrConst) {
+        outType = makeError();
+        outNullPtrConst = false;
+        if (!node) {
+            report("invalid expression");
+            return false;
+        }
+
+        const auto& kids = node->getChildren();
+        switch (node->getType()) {
+            case id: {
+                if (!node->getToken().has_value()) {
+                    report("invalid identifier expression");
+                    return false;
+                }
+                std::string name = node->getToken()->getValue();
+                auto* sym = lookup(name);
+                if (!sym) {
+                    report("use of undeclared identifier '" + name + "'");
+                    return false;
+                }
+                outType = sym->type;
+                return true;
+            }
+            case stringliteral:
+                outType = makePointer(makeChar());
+                return true;
+            case charconst: {
+                outType = makeInt();
+                if (node->getToken().has_value()) {
+                    outNullPtrConst = (parseCharLiteral(node->getToken()->getValue()) == 0);
+                }
+                return true;
+            }
+            case decimalconst: {
+                outType = makeInt();
+                long long v = 0;
+                if (node->getToken().has_value()) {
+                    try {
+                        v = std::stoll(node->getToken()->getValue());
+                    } catch (...) {
+                        v = 0;
+                    }
+                }
+                outNullPtrConst = (v == 0);
+                return true;
+            }
+            case parenthesizedexpr:
+                if (!kids.empty()) return inferExprType(kids.front(), outType, outNullPtrConst);
+                report("invalid parenthesized expression");
+                return false;
+            case arrayaccess: {
+                if (kids.size() < 2) {
+                    report("invalid array access");
+                    return false;
+                }
+                TypeDesc baseType;
+                TypeDesc idxType;
+                bool baseNull = false;
+                bool idxNull = false;
+                if (!inferExprType(kids.at(0), baseType, baseNull)) return false;
+                if (!inferExprType(kids.at(1), idxType, idxNull)) return false;
+                if (!isPointer(baseType) && isPointer(idxType)) {
+                    std::swap(baseType, idxType);
+                }
+                if (!isPointer(baseType)) {
+                    report("array base is not a pointer");
+                    return false;
+                }
+                outType = *baseType.pointee;
+                return true;
+            }
+            case functioncall: {
+                if (kids.empty()) {
+                    report("invalid function call");
+                    return false;
+                }
+                TypeDesc calleeType;
+                bool calleeNull = false;
+                if (!inferExprType(kids.at(0), calleeType, calleeNull)) return false;
+                TypeDesc funcType = calleeType;
+                if (isPointer(funcType) && isFunction(*funcType.pointee)) {
+                    funcType = *funcType.pointee;
+                }
+                if (!isFunction(funcType)) {
+                    report("call to non-function");
+                    return false;
+                }
+                outType = *funcType.returnType;
+                return true;
+            }
+            case memberaccess: {
+                if (kids.size() < 2 || !kids.at(1)->getToken().has_value()) {
+                    report("invalid member access");
+                    return false;
+                }
+                TypeDesc baseType;
+                bool baseNull = false;
+                if (!inferExprType(kids.at(0), baseType, baseNull)) return false;
+                if (!isStruct(baseType)) {
+                    report("member access on non-struct");
+                    return false;
+                }
+                auto sit = structs.find(baseType.structName);
+                if (sit == structs.end() || !sit->second.defined) {
+                    report("use of incomplete struct '" + baseType.structName + "'");
+                    return false;
+                }
+                const StructInfo& info = sit->second;
+                std::string fieldName = kids.at(1)->getToken()->getValue();
+                auto it = std::find(info.fieldNames.begin(), info.fieldNames.end(), fieldName);
+                if (it == info.fieldNames.end()) {
+                    report("unknown field '" + fieldName + "'");
+                    return false;
+                }
+                size_t index = static_cast<size_t>(std::distance(info.fieldNames.begin(), it));
+                outType = info.fieldTypes.at(index);
+                return true;
+            }
+            case pointermemberaccess: {
+                if (kids.size() < 2 || !kids.at(1)->getToken().has_value()) {
+                    report("invalid pointer member access");
+                    return false;
+                }
+                TypeDesc baseType;
+                bool baseNull = false;
+                if (!inferExprType(kids.at(0), baseType, baseNull)) return false;
+                if (!isPointer(baseType) || !isStruct(*baseType.pointee)) {
+                    report("pointer member access on non-struct pointer");
+                    return false;
+                }
+                std::string structName = baseType.pointee->structName;
+                auto sit = structs.find(structName);
+                if (sit == structs.end() || !sit->second.defined) {
+                    report("use of incomplete struct '" + structName + "'");
+                    return false;
+                }
+                const StructInfo& info = sit->second;
+                std::string fieldName = kids.at(1)->getToken()->getValue();
+                auto it = std::find(info.fieldNames.begin(), info.fieldNames.end(), fieldName);
+                if (it == info.fieldNames.end()) {
+                    report("unknown field '" + fieldName + "'");
+                    return false;
+                }
+                size_t index = static_cast<size_t>(std::distance(info.fieldNames.begin(), it));
+                outType = info.fieldTypes.at(index);
+                return true;
+            }
+            case reference: {
+                if (kids.empty()) {
+                    report("invalid address-of expression");
+                    return false;
+                }
+                const auto& child = kids.at(0);
+                if (child->getType() == id && child->getToken().has_value()) {
+                    auto* sym = lookup(child->getToken()->getValue());
+                    if (sym && sym->isFunction) {
+                        outType = makePointer(sym->type);
+                        return true;
+                    }
+                }
+                TypeDesc operandType;
+                bool operandNull = false;
+                if (!inferExprType(child, operandType, operandNull)) return false;
+                outType = makePointer(operandType);
+                return true;
+            }
+            case dereference: {
+                if (kids.empty()) {
+                    report("invalid dereference expression");
+                    return false;
+                }
+                TypeDesc operandType;
+                bool operandNull = false;
+                if (!inferExprType(kids.at(0), operandType, operandNull)) return false;
+                if (!isPointer(operandType)) {
+                    report("dereference of non-pointer");
+                    return false;
+                }
+                outType = *operandType.pointee;
+                return true;
+            }
+            case negationarithmetic:
+            case negationlogical: {
+                if (kids.empty()) {
+                    report("invalid unary expression");
+                    return false;
+                }
+                TypeDesc operandType;
+                bool operandNull = false;
+                if (!inferExprType(kids.at(0), operandType, operandNull)) return false;
+                outType = makeInt();
+                return true;
+            }
+            case preincrement:
+            case predecrement:
+            case postincrement:
+            case postdecrement: {
+                if (kids.empty()) {
+                    report("invalid increment/decrement expression");
+                    return false;
+                }
+                TypeDesc operandType;
+                bool operandNull = false;
+                if (!inferExprType(kids.at(0), operandType, operandNull)) return false;
+                outType = operandType;
+                return true;
+            }
+            case sizeoperator:
+                outType = makeInt();
+                return true;
+            case product: {
+                if (kids.size() < 2) {
+                    report("invalid binary expression");
+                    return false;
+                }
+                TypeDesc lhsType;
+                TypeDesc rhsType;
+                bool lhsNull = false;
+                bool rhsNull = false;
+                if (!inferExprType(kids.at(0), lhsType, lhsNull)) return false;
+                if (!inferExprType(kids.at(1), rhsType, rhsNull)) return false;
+                outType = makeInt();
+                return true;
+            }
+            case sum:
+            case difference: {
+                if (kids.size() < 2) {
+                    report("invalid binary expression");
+                    return false;
+                }
+                TypeDesc lhsType;
+                TypeDesc rhsType;
+                bool lhsNull = false;
+                bool rhsNull = false;
+                if (!inferExprType(kids.at(0), lhsType, lhsNull)) return false;
+                if (!inferExprType(kids.at(1), rhsType, rhsNull)) return false;
+                bool isSub = (node->getType() == difference);
+                if (isPointer(lhsType) && isInteger(rhsType)) {
+                    outType = lhsType;
+                    return true;
+                }
+                if (!isSub && isPointer(rhsType) && isInteger(lhsType)) {
+                    outType = rhsType;
+                    return true;
+                }
+                if (isSub && isPointer(lhsType) && isPointer(rhsType)) {
+                    outType = makeInt();
+                    return true;
+                }
+                outType = makeInt();
+                return true;
+            }
+            case comparison:
+            case equality:
+            case inequality:
+            case conjunction:
+            case disjunction: {
+                if (kids.size() < 2) {
+                    report("invalid binary expression");
+                    return false;
+                }
+                TypeDesc lhsType;
+                TypeDesc rhsType;
+                bool lhsNull = false;
+                bool rhsNull = false;
+                if (!inferExprType(kids.at(0), lhsType, lhsNull)) return false;
+                if (!inferExprType(kids.at(1), rhsType, rhsNull)) return false;
+                outType = makeInt();
+                return true;
+            }
+            case ternary: {
+                if (kids.size() < 3) {
+                    report("invalid ternary expression");
+                    return false;
+                }
+                TypeDesc condType;
+                TypeDesc tType;
+                TypeDesc fType;
+                bool condNull = false;
+                bool tNull = false;
+                bool fNull = false;
+                if (!inferExprType(kids.at(0), condType, condNull)) return false;
+                if (!inferExprType(kids.at(1), tType, tNull)) return false;
+                if (!inferExprType(kids.at(2), fType, fNull)) return false;
+
+                TypeDesc resultType = tType;
+                if (valueCompatible(tType, fType) && valueCompatible(fType, tType)) {
+                    if (isInteger(tType) && isInteger(fType)) {
+                        resultType = makeInt();
+                    } else if (isPointer(tType) && isPointer(fType) &&
+                               isVoidPtrCompatiblePair(tType, fType)) {
+                        resultType = makePointer(makeVoid());
+                    }
+                } else if (isPointer(tType) && fNull) {
+                    resultType = tType;
+                } else if (isPointer(fType) && tNull) {
+                    resultType = fType;
+                }
+                outType = resultType;
+                outNullPtrConst = false;
+                return true;
+            }
+            case assignment: {
+                if (kids.size() < 2) {
+                    report("invalid assignment expression");
+                    return false;
+                }
+                TypeDesc lhsType;
+                TypeDesc rhsType;
+                bool lhsNull = false;
+                bool rhsNull = false;
+                if (!inferExprType(kids.at(0), lhsType, lhsNull)) return false;
+                if (!inferExprType(kids.at(1), rhsType, rhsNull)) return false;
+                outType = lhsType;
+                return true;
+            }
+            default:
+                report("unsupported expression in sizeof");
+                return false;
+        }
+    }
+
     bool codegenExternalDecl(const ast::ExternalDecl& ext) {
         return std::visit([&](auto&& arg) -> bool {
             using T = std::decay_t<decltype(arg)>;
@@ -805,6 +1160,15 @@ private:
             return true;
         }
 
+        if (!decl.isExtern && !isCompleteObjectType(full)) {
+            if (full.kind == TypeDesc::Kind::Struct) {
+                report("use of incomplete struct '" + full.structName + "'");
+            } else {
+                report("object has incomplete type");
+            }
+            return false;
+        }
+
         llvm::Type* objTy = llvmType(full);
         if (isGlobal) {
             auto existing = scopes.front().find(name);
@@ -820,17 +1184,20 @@ private:
                 }
                 if (!decl.isExtern && gv->isDeclaration()) {
                     gv->setInitializer(llvm::Constant::getNullValue(objTy));
+                    gv->setLinkage(llvm::GlobalValue::CommonLinkage);
                 }
                 existing->second.type = full;
                 return true;
             }
 
             llvm::Constant* init = nullptr;
+            llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
             if (!decl.isExtern) {
                 init = llvm::Constant::getNullValue(objTy);
+                linkage = llvm::GlobalValue::CommonLinkage;
             }
             auto* gv = new llvm::GlobalVariable(*module, objTy, false,
-                                                llvm::GlobalValue::ExternalLinkage,
+                                                linkage,
                                                 init, name);
             SymbolValue sym;
             sym.type = full;
@@ -1317,6 +1684,11 @@ private:
                 }
                 std::string fieldName = kids.at(1)->getToken()->getValue();
                 StructInfo& info = getStructInfo(baseType.structName);
+                if (!info.defined) {
+                    report("use of incomplete struct '" + baseType.structName + "'");
+                    ev.type = makeError();
+                    return ev;
+                }
                 auto it = std::find(info.fieldNames.begin(), info.fieldNames.end(), fieldName);
                 if (it == info.fieldNames.end()) {
                     report("unknown field '" + fieldName + "'");
@@ -1344,6 +1716,11 @@ private:
                 TypeDesc structType = *base.type.pointee;
                 std::string fieldName = kids.at(1)->getToken()->getValue();
                 StructInfo& info = getStructInfo(structType.structName);
+                if (!info.defined) {
+                    report("use of incomplete struct '" + structType.structName + "'");
+                    ev.type = makeError();
+                    return ev;
+                }
                 auto it = std::find(info.fieldNames.begin(), info.fieldNames.end(), fieldName);
                 if (it == info.fieldNames.end()) {
                     report("unknown field '" + fieldName + "'");
@@ -1449,13 +1826,41 @@ private:
             case sizeoperator: {
                 if (!node->getChildren().empty() && node->getChildren().at(0)->getType() == type) {
                     TypeDesc tdesc = typeFromTypeNode(node->getChildren().at(0));
+                    if (tdesc.kind == TypeDesc::Kind::Struct && !isCompleteObjectType(tdesc)) {
+                        report("use of incomplete struct '" + tdesc.structName + "'");
+                        ev.type = makeError();
+                        return ev;
+                    }
                     llvm::Value* sz = sizeOfType(tdesc);
                     ev.value = builder.CreateTrunc(sz, builder.getInt32Ty(), "sizeof");
                     ev.type = makeInt();
                     return ev;
                 }
-                ExprValue operand = codegenExpr(node->getChildren().at(0));
-                llvm::Value* sz = sizeOfType(operand.type);
+                if (node->getChildren().empty()) {
+                    report("invalid sizeof expression");
+                    ev.type = makeError();
+                    return ev;
+                }
+                const Node::Ptr& operandNode = node->getChildren().at(0);
+                uint64_t literalSize = 0;
+                if (tryStringLiteralSize(operandNode, literalSize)) {
+                    ev.value = llvm::ConstantInt::get(builder.getInt32Ty(), literalSize);
+                    ev.type = makeInt();
+                    return ev;
+                }
+
+                TypeDesc operandType;
+                bool operandNull = false;
+                if (!inferExprType(operandNode, operandType, operandNull)) {
+                    ev.type = makeError();
+                    return ev;
+                }
+                if (operandType.kind == TypeDesc::Kind::Struct && !isCompleteObjectType(operandType)) {
+                    report("use of incomplete struct '" + operandType.structName + "'");
+                    ev.type = makeError();
+                    return ev;
+                }
+                llvm::Value* sz = sizeOfType(operandType);
                 ev.value = builder.CreateTrunc(sz, builder.getInt32Ty(), "sizeof");
                 ev.type = makeInt();
                 return ev;
@@ -1770,6 +2175,10 @@ private:
                 }
                 std::string fieldName = kids.at(1)->getToken()->getValue();
                 StructInfo& info = getStructInfo(baseType.structName);
+                if (!info.defined) {
+                    report("use of incomplete struct '" + baseType.structName + "'");
+                    return nullptr;
+                }
                 auto it = std::find(info.fieldNames.begin(), info.fieldNames.end(), fieldName);
                 if (it == info.fieldNames.end()) {
                     report("unknown field '" + fieldName + "'");
@@ -1793,6 +2202,10 @@ private:
                 TypeDesc structType = *base.type.pointee;
                 std::string fieldName = kids.at(1)->getToken()->getValue();
                 StructInfo& info = getStructInfo(structType.structName);
+                if (!info.defined) {
+                    report("use of incomplete struct '" + structType.structName + "'");
+                    return nullptr;
+                }
                 auto it = std::find(info.fieldNames.begin(), info.fieldNames.end(), fieldName);
                 if (it == info.fieldNames.end()) {
                     report("unknown field '" + fieldName + "'");
