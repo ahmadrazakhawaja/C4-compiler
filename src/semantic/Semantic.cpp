@@ -956,27 +956,89 @@ private:
             for (const auto& childNode : typeNode->getChildren()) {
                 toks.push_back(*childNode->getToken());
             }
-            if (toks.empty() || toks.at(0).getValue() != "struct") return;
-            if (toks.size() < 2 || toks.at(1).getTokenType() != "identifier") {
+            if (toks.empty()) return;
+
+            int braceDepth = 0;
+            bool expectStructTag = false;
+            bool topLevelStruct = false;
+            std::optional<std::string> topStructName;
+            bool hasInlineDefinition = false;
+            bool pointerLike = false;
+
+            for (size_t i = 0; i < toks.size(); ++i) {
+                const Token& tok = toks.at(i);
+                const std::string& v = tok.getValue();
+
+                if (expectStructTag) {
+                    if (tok.getTokenType() == "identifier") {
+                        if (topLevelStruct && !topStructName.has_value() && braceDepth == 0) {
+                            topStructName = tok.getValue();
+                        }
+                        expectStructTag = false;
+                        continue;
+                    }
+                    if (v == "{") {
+                        expectStructTag = false;
+                        if (topLevelStruct && braceDepth == 0) {
+                            hasInlineDefinition = true;
+                        }
+                        ++braceDepth;
+                        continue;
+                    }
+                    SourceLocation loc = locFromNode(typeNode->getChildren().at(i));
+                    report(loc, "invalid type name in sizeof");
+                    return;
+                }
+
+                if (v == "struct") {
+                    expectStructTag = true;
+                    if (i == 0 && braceDepth == 0) topLevelStruct = true;
+                    continue;
+                }
+
+                if (v == "{") {
+                    if (topLevelStruct && braceDepth == 0) hasInlineDefinition = true;
+                    ++braceDepth;
+                    continue;
+                }
+                if (v == "}") {
+                    if (braceDepth == 0) {
+                        SourceLocation loc = locFromNode(typeNode->getChildren().at(i));
+                        report(loc, "invalid type name in sizeof");
+                        return;
+                    }
+                    --braceDepth;
+                    continue;
+                }
+
+                if (braceDepth == 0 && (v == "*" || v == "[")) {
+                    pointerLike = true;
+                }
+
+                if (braceDepth == 0 && tok.getTokenType() == "identifier") {
+                    SourceLocation loc = locFromNode(typeNode->getChildren().at(i));
+                    report(loc, "invalid type name in sizeof");
+                    return;
+                }
+            }
+
+            if (expectStructTag || braceDepth != 0) {
+                SourceLocation loc = locFromNode(typeNode->getChildren().back());
+                report(loc, "invalid type name in sizeof");
+                return;
+            }
+
+            if (!topLevelStruct || hasInlineDefinition || pointerLike) return;
+            if (!topStructName.has_value()) {
                 SourceLocation loc = locFromNode(typeNode->getChildren().front());
                 report(loc, "anonymous structs are not supported");
                 return;
             }
-            const std::string name = toks.at(1).getValue();
 
-            bool hasInlineDefinition = false;
-            bool pointerLike = false;
-            for (size_t i = 2; i < toks.size(); ++i) {
-                const std::string& v = toks.at(i).getValue();
-                if (v == "{") hasInlineDefinition = true;
-                if (v == "*" || v == "[") pointerLike = true;
-            }
-            if (hasInlineDefinition || pointerLike) return;
-
-            auto it = structs.find(name);
+            auto it = structs.find(*topStructName);
             if (it == structs.end() || !it->second.defined) {
                 SourceLocation loc = locFromNode(typeNode->getChildren().at(1));
-                report(loc, "use of incomplete struct '" + name + "'");
+                report(loc, "use of incomplete struct '" + *topStructName + "'");
             }
             return;
         }
