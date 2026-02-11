@@ -1817,8 +1817,11 @@ private:
                 }
                 size_t index = static_cast<size_t>(std::distance(info.fieldNames.begin(), it));
                 TypeDesc fieldType = info.fieldTypes.at(index);
-                llvm::Value* addr = builder.CreateStructGEP(llvmType(baseType), baseAddr,
-                                                           static_cast<unsigned>(index), "fieldaddr");
+                llvm::Value* zero = llvm::ConstantInt::get(builder.getInt32Ty(), 0);
+                llvm::Value* fieldIdx = llvm::ConstantInt::get(builder.getInt32Ty(),
+                                                               static_cast<uint64_t>(index));
+                llvm::Value* addr = builder.CreateGEP(llvmType(baseType), baseAddr,
+                                                      {zero, fieldIdx}, "fieldaddr");
                 return makeLValue(addr, fieldType);
             }
             case pointermemberaccess: {
@@ -1849,8 +1852,11 @@ private:
                 }
                 size_t index = static_cast<size_t>(std::distance(info.fieldNames.begin(), it));
                 TypeDesc fieldType = info.fieldTypes.at(index);
-                llvm::Value* addr = builder.CreateStructGEP(llvmType(structType), base.value,
-                                                           static_cast<unsigned>(index), "fieldaddr");
+                llvm::Value* zero = llvm::ConstantInt::get(builder.getInt32Ty(), 0);
+                llvm::Value* fieldIdx = llvm::ConstantInt::get(builder.getInt32Ty(),
+                                                               static_cast<uint64_t>(index));
+                llvm::Value* addr = builder.CreateGEP(llvmType(structType), base.value,
+                                                      {zero, fieldIdx}, "fieldaddr");
                 return makeLValue(addr, fieldType);
             }
             case reference: {
@@ -2306,8 +2312,11 @@ private:
                 }
                 size_t index = static_cast<size_t>(std::distance(info.fieldNames.begin(), it));
                 outType = info.fieldTypes.at(index);
-                return builder.CreateStructGEP(llvmType(baseType), baseAddr,
-                                               static_cast<unsigned>(index), "fieldaddr");
+                llvm::Value* zero = llvm::ConstantInt::get(builder.getInt32Ty(), 0);
+                llvm::Value* fieldIdx = llvm::ConstantInt::get(builder.getInt32Ty(),
+                                                               static_cast<uint64_t>(index));
+                return builder.CreateGEP(llvmType(baseType), baseAddr,
+                                         {zero, fieldIdx}, "fieldaddr");
             }
             case pointermemberaccess: {
                 const auto& kids = node->getChildren();
@@ -2333,8 +2342,11 @@ private:
                 }
                 size_t index = static_cast<size_t>(std::distance(info.fieldNames.begin(), it));
                 outType = info.fieldTypes.at(index);
-                return builder.CreateStructGEP(llvmType(structType), base.value,
-                                               static_cast<unsigned>(index), "fieldaddr");
+                llvm::Value* zero = llvm::ConstantInt::get(builder.getInt32Ty(), 0);
+                llvm::Value* fieldIdx = llvm::ConstantInt::get(builder.getInt32Ty(),
+                                                               static_cast<uint64_t>(index));
+                return builder.CreateGEP(llvmType(structType), base.value,
+                                         {zero, fieldIdx}, "fieldaddr");
             }
             default:
                 report("not an lvalue");
