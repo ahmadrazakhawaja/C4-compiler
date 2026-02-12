@@ -2,14 +2,19 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -18,10 +23,16 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/Type.h"
+#include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/BreakCriticalEdges.h"
+#include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/Mem2Reg.h"
 
 #include "../helper/Symbol.h"
 #include "../helper/structs/Node.h"
@@ -501,6 +512,344 @@ static Node::Ptr findFirstNodeOfType(const Node::Ptr& node, Symbol sym) {
     return nullptr;
 }
 
+enum class LatticeKind { Unknown, Constant, Overdefined };
+
+struct LatticeValue {
+    LatticeKind kind = LatticeKind::Unknown;
+    llvm::Constant* constant = nullptr;
+
+    static LatticeValue unknown() { return LatticeValue{}; }
+    static LatticeValue overdefined() { return LatticeValue{LatticeKind::Overdefined, nullptr}; }
+    static LatticeValue fromConstant(llvm::Constant* c) { return LatticeValue{LatticeKind::Constant, c}; }
+
+    bool operator==(const LatticeValue& other) const {
+        if (kind != other.kind) return false;
+        if (kind != LatticeKind::Constant) return true;
+        return constant == other.constant;
+    }
+};
+
+static LatticeValue mergeLattice(LatticeValue a, LatticeValue b) {
+    if (a.kind == LatticeKind::Overdefined || b.kind == LatticeKind::Overdefined) {
+        return LatticeValue::overdefined();
+    }
+    if (a.kind == LatticeKind::Unknown) return b;
+    if (b.kind == LatticeKind::Unknown) return a;
+    if (a.constant == b.constant) return a;
+    return LatticeValue::overdefined();
+}
+
+struct EdgeKey {
+    llvm::BasicBlock* pred = nullptr;
+    llvm::BasicBlock* succ = nullptr;
+
+    bool operator==(const EdgeKey& other) const {
+        return pred == other.pred && succ == other.succ;
+    }
+};
+
+struct EdgeKeyHash {
+    size_t operator()(const EdgeKey& key) const {
+        size_t h1 = std::hash<const void*>{}(key.pred);
+        size_t h2 = std::hash<const void*>{}(key.succ);
+        return h1 ^ (h2 << 1);
+    }
+};
+
+class SccpSolver {
+public:
+    SccpSolver(llvm::Function& fn, const llvm::DataLayout& dl)
+        : function(fn), dataLayout(dl) {}
+
+    void run() {
+        for (llvm::Argument& arg : function.args()) {
+            (void)mergeValue(&arg, LatticeValue::overdefined());
+        }
+        markBlockExecutable(&function.getEntryBlock());
+        propagate();
+    }
+
+    void apply() {
+        replaceInstructionsWithConstants();
+        foldConstantTerminators();
+        deleteUnreachableBlocks();
+        deleteTriviallyDeadInstructions();
+    }
+
+private:
+    llvm::Function& function;
+    const llvm::DataLayout& dataLayout;
+    std::unordered_map<llvm::Value*, LatticeValue> valueStates;
+    std::unordered_set<llvm::BasicBlock*> executableBlocks;
+    std::unordered_set<EdgeKey, EdgeKeyHash> executableEdges;
+    std::deque<llvm::BasicBlock*> blockWorklist;
+    std::deque<llvm::Instruction*> instructionWorklist;
+
+    LatticeValue valueState(llvm::Value* value) const {
+        if (auto* constant = llvm::dyn_cast<llvm::Constant>(value)) {
+            return LatticeValue::fromConstant(constant);
+        }
+        auto it = valueStates.find(value);
+        if (it == valueStates.end()) return LatticeValue::unknown();
+        return it->second;
+    }
+
+    bool mergeValue(llvm::Value* value, const LatticeValue& incoming) {
+        if (!value || incoming.kind == LatticeKind::Unknown) return false;
+        if (llvm::isa<llvm::Constant>(value)) return false;
+        if (value->getType()->isVoidTy()) return false;
+
+        LatticeValue current = valueState(value);
+        LatticeValue merged = mergeLattice(current, incoming);
+        if (current == merged) return false;
+
+        valueStates[value] = merged;
+        for (llvm::User* user : value->users()) {
+            if (auto* inst = llvm::dyn_cast<llvm::Instruction>(user)) {
+                instructionWorklist.push_back(inst);
+            }
+        }
+        return true;
+    }
+
+    void markBlockExecutable(llvm::BasicBlock* block) {
+        if (executableBlocks.insert(block).second) {
+            blockWorklist.push_back(block);
+        }
+    }
+
+    bool isEdgeExecutable(llvm::BasicBlock* pred, llvm::BasicBlock* succ) const {
+        return executableEdges.find(EdgeKey{pred, succ}) != executableEdges.end();
+    }
+
+    void markEdgeExecutable(llvm::BasicBlock* pred, llvm::BasicBlock* succ) {
+        EdgeKey edge{pred, succ};
+        if (!executableEdges.insert(edge).second) return;
+
+        markBlockExecutable(succ);
+
+        for (llvm::Instruction& inst : *succ) {
+            auto* phi = llvm::dyn_cast<llvm::PHINode>(&inst);
+            if (!phi) break;
+            instructionWorklist.push_back(phi);
+        }
+    }
+
+    void propagate() {
+        while (!blockWorklist.empty() || !instructionWorklist.empty()) {
+            while (!blockWorklist.empty()) {
+                llvm::BasicBlock* block = blockWorklist.front();
+                blockWorklist.pop_front();
+                for (llvm::Instruction& inst : *block) {
+                    instructionWorklist.push_back(&inst);
+                }
+            }
+
+            if (instructionWorklist.empty()) continue;
+
+            llvm::Instruction* inst = instructionWorklist.front();
+            instructionWorklist.pop_front();
+            if (!inst || !inst->getParent()) continue;
+            if (executableBlocks.find(inst->getParent()) == executableBlocks.end()) continue;
+            visitInstruction(*inst);
+        }
+    }
+
+    void visitInstruction(llvm::Instruction& inst) {
+        if (auto* phi = llvm::dyn_cast<llvm::PHINode>(&inst)) {
+            visitPhi(*phi);
+            return;
+        }
+
+        if (inst.isTerminator()) {
+            visitTerminator(inst);
+            return;
+        }
+
+        if (inst.getType()->isVoidTy()) return;
+
+        if (llvm::isa<llvm::CallBase>(inst) ||
+            llvm::isa<llvm::LoadInst>(inst) ||
+            llvm::isa<llvm::AllocaInst>(inst) ||
+            llvm::isa<llvm::AtomicRMWInst>(inst) ||
+            llvm::isa<llvm::AtomicCmpXchgInst>(inst) ||
+            llvm::isa<llvm::VAArgInst>(inst) ||
+            llvm::isa<llvm::LandingPadInst>(inst)) {
+            (void)mergeValue(&inst, LatticeValue::overdefined());
+            return;
+        }
+
+        if (llvm::Constant* folded = llvm::ConstantFoldInstruction(&inst, dataLayout)) {
+            (void)mergeValue(&inst, LatticeValue::fromConstant(folded));
+            return;
+        }
+
+        bool anyOverdefined = false;
+        for (llvm::Use& op : inst.operands()) {
+            if (valueState(op.get()).kind == LatticeKind::Overdefined) {
+                anyOverdefined = true;
+                break;
+            }
+        }
+
+        if (anyOverdefined) {
+            (void)mergeValue(&inst, LatticeValue::overdefined());
+        }
+    }
+
+    void visitPhi(llvm::PHINode& phi) {
+        LatticeValue merged = LatticeValue::unknown();
+        bool sawExecutableIncoming = false;
+
+        for (unsigned i = 0; i < phi.getNumIncomingValues(); ++i) {
+            llvm::BasicBlock* pred = phi.getIncomingBlock(i);
+            llvm::BasicBlock* succ = phi.getParent();
+            if (!isEdgeExecutable(pred, succ)) continue;
+
+            sawExecutableIncoming = true;
+            merged = mergeLattice(merged, valueState(phi.getIncomingValue(i)));
+            if (merged.kind == LatticeKind::Overdefined) break;
+        }
+
+        if (sawExecutableIncoming) {
+            (void)mergeValue(&phi, merged);
+        }
+    }
+
+    static bool tryGetBoolConstant(llvm::Constant* constant, bool& outValue) {
+        if (auto* intConst = llvm::dyn_cast<llvm::ConstantInt>(constant)) {
+            outValue = !intConst->isZero();
+            return true;
+        }
+        return false;
+    }
+
+    void visitTerminator(llvm::Instruction& inst) {
+        llvm::BasicBlock* block = inst.getParent();
+
+        if (auto* branch = llvm::dyn_cast<llvm::BranchInst>(&inst)) {
+            if (!branch->isConditional()) {
+                markEdgeExecutable(block, branch->getSuccessor(0));
+                return;
+            }
+
+            LatticeValue cond = valueState(branch->getCondition());
+            bool condValue = false;
+            if (cond.kind == LatticeKind::Constant && tryGetBoolConstant(cond.constant, condValue)) {
+                markEdgeExecutable(block, branch->getSuccessor(condValue ? 0 : 1));
+                return;
+            }
+
+            markEdgeExecutable(block, branch->getSuccessor(0));
+            markEdgeExecutable(block, branch->getSuccessor(1));
+            return;
+        }
+
+        if (auto* switchInst = llvm::dyn_cast<llvm::SwitchInst>(&inst)) {
+            LatticeValue cond = valueState(switchInst->getCondition());
+            if (cond.kind == LatticeKind::Constant) {
+                if (auto* intConst = llvm::dyn_cast<llvm::ConstantInt>(cond.constant)) {
+                    llvm::BasicBlock* target = switchInst->getDefaultDest();
+                    for (const auto& caseHandle : switchInst->cases()) {
+                        if (caseHandle.getCaseValue() == intConst) {
+                            target = caseHandle.getCaseSuccessor();
+                            break;
+                        }
+                    }
+                    markEdgeExecutable(block, target);
+                    return;
+                }
+            }
+
+            for (llvm::BasicBlock* succ : llvm::successors(block)) {
+                markEdgeExecutable(block, succ);
+            }
+            return;
+        }
+
+        for (llvm::BasicBlock* succ : llvm::successors(block)) {
+            markEdgeExecutable(block, succ);
+        }
+    }
+
+    void replaceInstructionsWithConstants() {
+        for (llvm::BasicBlock& block : function) {
+            for (llvm::Instruction& inst : block) {
+                if (inst.getType()->isVoidTy()) continue;
+
+                auto it = valueStates.find(&inst);
+                if (it == valueStates.end()) continue;
+                const LatticeValue& state = it->second;
+                if (state.kind != LatticeKind::Constant || !state.constant) continue;
+                if (state.constant->getType() != inst.getType()) continue;
+
+                inst.replaceAllUsesWith(state.constant);
+            }
+        }
+    }
+
+    void foldConstantTerminators() {
+        std::vector<llvm::BasicBlock*> blocks;
+        blocks.reserve(function.size());
+        for (llvm::BasicBlock& block : function) {
+            blocks.push_back(&block);
+        }
+
+        for (llvm::BasicBlock* block : blocks) {
+            if (block->getParent() == &function) {
+                (void)llvm::ConstantFoldTerminator(block, true);
+            }
+        }
+    }
+
+    void deleteUnreachableBlocks() {
+        std::unordered_set<llvm::BasicBlock*> reachable;
+        std::deque<llvm::BasicBlock*> queue;
+
+        llvm::BasicBlock* entry = &function.getEntryBlock();
+        reachable.insert(entry);
+        queue.push_back(entry);
+
+        while (!queue.empty()) {
+            llvm::BasicBlock* block = queue.front();
+            queue.pop_front();
+            for (llvm::BasicBlock* succ : llvm::successors(block)) {
+                if (reachable.insert(succ).second) {
+                    queue.push_back(succ);
+                }
+            }
+        }
+
+        std::vector<llvm::BasicBlock*> deadBlocks;
+        for (llvm::BasicBlock& block : function) {
+            if (reachable.find(&block) == reachable.end()) {
+                deadBlocks.push_back(&block);
+            }
+        }
+
+        if (!deadBlocks.empty()) {
+            llvm::DeleteDeadBlocks(deadBlocks);
+        }
+    }
+
+    void deleteTriviallyDeadInstructions() {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (llvm::BasicBlock& block : function) {
+                for (auto it = block.begin(); it != block.end();) {
+                    llvm::Instruction* inst = &*it++;
+                    if (inst->isTerminator()) continue;
+                    if (llvm::isInstructionTriviallyDead(inst)) {
+                        inst->eraseFromParent();
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+};
+
 class Codegen {
 public:
     Codegen(std::ostream& errStream, std::string moduleName)
@@ -514,6 +863,24 @@ public:
             if (!codegenExternalDecl(ext)) return false;
         }
         return true;
+    }
+
+    void optimize() {
+        llvm::PassBuilder passBuilder;
+        llvm::FunctionAnalysisManager functionAnalysisManager;
+        passBuilder.registerFunctionAnalyses(functionAnalysisManager);
+
+        llvm::FunctionPassManager functionPassManager;
+        functionPassManager.addPass(llvm::BreakCriticalEdgesPass());
+        functionPassManager.addPass(llvm::PromotePass());
+
+        for (llvm::Function& fn : *module) {
+            if (fn.isDeclaration()) continue;
+            functionPassManager.run(fn, functionAnalysisManager);
+            SccpSolver solver(fn, module->getDataLayout());
+            solver.run();
+            solver.apply();
+        }
     }
 
     bool writeToFile(const std::string& inputPath) {
@@ -2486,11 +2853,12 @@ private:
 
 } // namespace
 
-bool generate(const ast::TranslationUnit& tu, const std::string& inputPath, std::ostream& err) {
+bool generate(const ast::TranslationUnit& tu, const std::string& inputPath, std::ostream& err, bool optimize) {
     std::filesystem::path p(inputPath);
     std::string moduleName = p.filename().string();
     Codegen cg(err, moduleName.empty() ? "module" : moduleName);
     if (!cg.run(tu, inputPath)) return false;
+    if (optimize) cg.optimize();
     return cg.writeToFile(inputPath);
 }
 

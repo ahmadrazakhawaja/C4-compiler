@@ -8,7 +8,7 @@
 #include "semantic/Semantic.h"
 #include "ir/IR.h"
 
-static bool compile_to_ir(const std::string& file, const std::string& fullPath) {
+static bool compile_to_ir(const std::string& file, const std::string& fullPath, bool optimize = false) {
     std::string sourceCode;
     try {
         sourceCode = Utils::readSourceCode(fullPath);
@@ -32,7 +32,7 @@ static bool compile_to_ir(const std::string& file, const std::string& fullPath) 
     auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
     if (!semantic::analyze(astTree, std::cerr, file)) return false;
 
-    return ir::generate(astTree, fullPath, std::cerr);
+    return ir::generate(astTree, fullPath, std::cerr, optimize);
 }
 
 int main(int argc, char** argv) {
@@ -102,12 +102,18 @@ int main(int argc, char** argv) {
         return compile_to_ir(file, fullPath) ? 0 : 1;
     }
 
+    if (argc >= 3 && std::string(argv[1]) == "--optimize") {
+        std::string fullPath = argv[2];
+        std::string file = fullPath;
+        return compile_to_ir(file, fullPath, true) ? 0 : 1;
+    }
+
     if (argc >= 2 && std::string(argv[1]).rfind("--", 0) != 0) {
         std::string fullPath = argv[1];
         std::string file = fullPath;
         return compile_to_ir(file, fullPath) ? 0 : 1;
     }
 
-    std::cerr << "usage: c4 [--tokenize|--tokenize_verbose|--parse|--parse_verbose|--print-ast|--compile] file\n";
+    std::cerr << "usage: c4 [--tokenize|--tokenize_verbose|--parse|--parse_verbose|--print-ast|--compile|--optimize] file\n";
     return 1;
 }

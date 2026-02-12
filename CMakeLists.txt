@@ -28,7 +28,13 @@ add_executable(c4 ${MAIN_FILE} ${SOURCES})
 # LLVM includes/defs/libs
 target_include_directories(c4 PRIVATE ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(c4 PRIVATE ${LLVM_DEFINITIONS})
-target_link_libraries(c4 PRIVATE LLVMCore LLVMSupport)
+target_link_libraries(c4 PRIVATE
+    LLVMCore
+    LLVMSupport
+    LLVMAnalysis
+    LLVMTransformUtils
+    LLVMPasses
+)
 
 # Optional: organize IDEs and editors
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src FILES ${MAIN_FILE} ${SOURCES})

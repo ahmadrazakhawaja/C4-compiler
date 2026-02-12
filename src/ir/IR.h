@@ -7,6 +7,6 @@
 
 namespace ir {
 
-bool generate(const ast::TranslationUnit& tu, const std::string& inputPath, std::ostream& err);
+bool generate(const ast::TranslationUnit& tu, const std::string& inputPath, std::ostream& err, bool optimize = false);
 
 } // namespace ir
