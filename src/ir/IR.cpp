@@ -11,7 +11,6 @@
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -20,7 +19,6 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
-#include "llvm/IR/Verifier.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
@@ -524,13 +522,6 @@ public:
     }
 
     bool writeToFile(const std::string& inputPath) {
-        std::string verifyMsg;
-        llvm::raw_string_ostream verifyStream(verifyMsg);
-        if (llvm::verifyModule(*module, &verifyStream)) {
-            err << "error: invalid LLVM IR generated\n" << verifyStream.str();
-            return false;
-        }
-
         std::filesystem::path p(inputPath);
         std::string outName = p.stem().string() + ".ll";
         std::error_code ec;
@@ -1658,20 +1649,6 @@ private:
     llvm::Value* sizeOfType(const TypeDesc& type) {
         if (type.kind == TypeDesc::Kind::Void || type.kind == TypeDesc::Kind::Function) {
             return llvm::ConstantInt::get(builder.getInt64Ty(), 0);
-        }
-        if (type.kind == TypeDesc::Kind::Char) {
-            return llvm::ConstantInt::get(builder.getInt64Ty(), 1);
-        }
-        if (type.kind == TypeDesc::Kind::Int) {
-            return llvm::ConstantInt::get(builder.getInt64Ty(), 4);
-        }
-        if (type.kind == TypeDesc::Kind::Pointer) {
-            uint64_t ptrSize = 8;
-            const llvm::DataLayout& dl = module->getDataLayout();
-            if (!dl.isDefault()) {
-                ptrSize = dl.getPointerSize(0);
-            }
-            return llvm::ConstantInt::get(builder.getInt64Ty(), ptrSize);
         }
         llvm::Type* objTy = llvmType(type);
         llvm::Constant* nullPtr = llvm::ConstantPointerNull::get(
