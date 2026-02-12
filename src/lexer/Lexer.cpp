@@ -1,13 +1,10 @@
 #include <iostream>
-#include <fstream>
 #include <string>
 #include <exception>
 
 #include "Tokenizer.h"
 #include "./../helper/structs/Token.h"
 #include "./../helper/Utils.h"
-
-#define TEST_PATH "./test/lexer/"
 
 static std::string formatTokenType(const Token& token) {
     const std::string& type = token.getTokenType();
@@ -17,17 +14,17 @@ static std::string formatTokenType(const Token& token) {
     return type;
 }
 
-void printTokens(std::vector<Token> tokens, std::string fileName) {
+void printTokens(const std::vector<Token>& tokens, const std::string& fileName) {
     for (const Token& token : tokens) {
-        if(token.getTokenType() == "EOF") {
+        if (token.getTokenType() == "EOF") {
             continue;
         }
         std::cout << fileName << ":"
-            << token.getSourceLine()+1 << ":"
-            << token.getSourceIndex()+1 << ": "
-            << formatTokenType(token) << " "
-            << token.getValue() << std::endl;
-        }
+                  << token.getSourceLine() + 1 << ":"
+                  << token.getSourceIndex() + 1 << ": "
+                  << formatTokenType(token) << " "
+                  << token.getValue() << std::endl;
+    }
 }
 
 bool run_lexer(const std::string& fileName, const std::string& path, bool isVerbose) {
@@ -38,7 +35,6 @@ bool run_lexer(const std::string& fileName, const std::string& path, bool isVerb
         std::cerr << ex.what() << std::endl;
         return false;
     }
-    sourceCode += '\0';
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, isVerbose);
     // error appeared
     if (sequence.second.has_value()) {

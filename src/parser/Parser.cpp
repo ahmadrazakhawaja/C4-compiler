@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <exception>
+#include <utility>
 
 #include "../helper/structs/Node.h"
 #include "../helper/structs/Token.h"
@@ -91,7 +92,6 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
         std::cerr << ex.what() << std::endl;
         return false;
     }
-    sourceCode += '\0';
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
 
     if (sequence.second.has_value()) {
@@ -101,23 +101,21 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
         return false;
     }
 
-    std::vector<Token> tokens = sequence.first;
-    Parser parser(tokens, isVerbose, fileName);
+    Parser parser(std::move(sequence.first), isVerbose, fileName);
 
-    if (!parser.parse()) {
-        auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
-        if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
+    if (parser.parse()) return false;
 
-        std::cout << "Successfully parsed " << fileName << "\n";
-        prettyPrint::Options opt;
-        opt.unicodeBranches = false;
-        opt.showTokenValue = true;
+    auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
+    if (!semantic::analyze(astTree, std::cerr, fileName)) return false;
 
-        std::cout << "\n=== Parse Tree ===\n";
-        prettyPrint::printTree(parser.getParseTreeRoot(), std::cout, opt);
-        return true;
-    }
-    return false;
+    std::cout << "Successfully parsed " << fileName << "\n";
+    prettyPrint::Options opt;
+    opt.unicodeBranches = false;
+    opt.showTokenValue = true;
+
+    std::cout << "\n=== Parse Tree ===\n";
+    prettyPrint::printTree(parser.getParseTreeRoot(), std::cout, opt);
+    return true;
 }
 
 // -------------------------

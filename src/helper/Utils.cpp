@@ -1,6 +1,6 @@
-#include <iostream>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include "Utils.h"
 
@@ -13,7 +13,5 @@ std::string Utils::readSourceCode(const std::string& path) {
     std::stringstream buffer;
     buffer << file.rdbuf();
 
-    std::string content = buffer.str();
-    content += '\0';
-    return content;
-};
+    return buffer.str() + '\0';
+}
