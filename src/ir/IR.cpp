@@ -139,11 +139,6 @@ struct LoopContext {
     llvm::BasicBlock* continueBlock = nullptr;
 };
 
-struct StringGlobalRef {
-    llvm::GlobalVariable* global = nullptr;
-    llvm::Type* arrayType = nullptr;
-};
-
 static bool isVoidOnlyParamList(const ast::ParamList& plist) {
     if (plist.isArray) return false;
     if (plist.params.size() != 1) return false;
@@ -1634,16 +1629,15 @@ private:
         return ev;
     }
 
-    StringGlobalRef createStringLiteral(const std::string& value) {
-        StringGlobalRef ref;
+    llvm::Value* createStringLiteral(const std::string& value) {
         llvm::Constant* data = llvm::ConstantDataArray::getString(context, value, true);
         auto* gv = new llvm::GlobalVariable(*module, data->getType(), true,
                                             llvm::GlobalValue::PrivateLinkage,
                                             data, "str");
         gv->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
-        ref.global = gv;
-        ref.arrayType = data->getType();
-        return ref;
+        llvm::Constant* zero = llvm::ConstantInt::get(builder.getInt32Ty(), 0);
+        llvm::Constant* indices[] = {zero, zero};
+        return llvm::ConstantExpr::getInBoundsGetElementPtr(data->getType(), gv, indices);
     }
 
     llvm::Value* sizeOfType(const TypeDesc& type) {
@@ -1688,9 +1682,7 @@ private:
             case stringliteral: {
                 std::string raw = node->getToken()->getValue();
                 std::string parsed = parseStringLiteral(raw);
-                StringGlobalRef sref = createStringLiteral(parsed);
-                llvm::Value* zero = llvm::ConstantInt::get(builder.getInt32Ty(), 0);
-                llvm::Value* str = builder.CreateGEP(sref.arrayType, sref.global, {zero, zero}, "strptr");
+                llvm::Value* str = createStringLiteral(parsed);
                 ev.value = str;
                 ev.type = makePointer(makeChar());
                 return ev;
