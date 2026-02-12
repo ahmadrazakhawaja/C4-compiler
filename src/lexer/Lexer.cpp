@@ -5,6 +5,7 @@
 #include "Tokenizer.h"
 #include "./../helper/structs/Token.h"
 #include "./../helper/Utils.h"
+#include "./../helper/Diagnostics.h"
 
 static std::string formatTokenType(const Token& token) {
     const std::string& type = token.getTokenType();
@@ -32,7 +33,7 @@ bool run_lexer(const std::string& fileName, const std::string& path, bool isVerb
     try {
         sourceCode = Utils::readSourceCode(path);
     } catch (const std::exception& ex) {
-        std::cerr << ex.what() << std::endl;
+        diag::printException(std::cerr, ex);
         return false;
     }
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, isVerbose);
@@ -40,8 +41,7 @@ bool run_lexer(const std::string& fileName, const std::string& path, bool isVerb
     if (sequence.second.has_value()) {
         const auto& err = *sequence.second;
         printTokens(sequence.first, fileName);
-        std::cerr << fileName << ":" << err.line + 1 << ":" << err.column + 1
-                  << ": error: " << err.message << std::endl;
+        diag::printLocatedError(std::cerr, fileName, err.line, err.column, err.message);
         return false;
     }
     // print tokens

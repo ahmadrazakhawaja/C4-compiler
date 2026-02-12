@@ -9,6 +9,7 @@
 #include "../helper/Symbol.h"
 #include <assert.h>
 #include "../helper/Utils.h"
+#include "../helper/Diagnostics.h"
 #include "../lexer/Tokenizer.h"
 #include "../prettyPrint/prettyPrint.h"
 #include "../ast/Ast.h"
@@ -60,10 +61,7 @@ static bool isStatementStart(const Token& tok, const Token& nextTok) {
 Parser::Parser(std::vector<Token> tokens, bool verbose, std::string fileName)
     : parseTreeRoot(Node::make(start)), isVerbose(verbose) {
     parseFileName = fileName.empty() ? "unknown" : std::move(fileName);
-    while (!tokens.empty()) {
-        remTokens.push_back(tokens.back());
-        tokens.pop_back();
-    }
+    remTokens.assign(tokens.rbegin(), tokens.rend());
     remSymbols.push_back(parseTreeRoot);
 }
 
@@ -89,15 +87,14 @@ bool Parser::run(const std::string& fileName, const std::string& path, bool isVe
     try {
         sourceCode = Utils::readSourceCode(path);
     } catch (const std::exception& ex) {
-        std::cerr << ex.what() << std::endl;
+        diag::printException(std::cerr, ex);
         return false;
     }
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
 
     if (sequence.second.has_value()) {
         const auto& err = *sequence.second;
-        std::cerr << fileName << ":" << err.line + 1 << ":" << err.column + 1
-                  << ": error: " << err.message << std::endl;
+        diag::printLocatedError(std::cerr, fileName, err.line, err.column, err.message);
         return false;
     }
 
@@ -538,6 +535,19 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
 // -------------------------
 int Parser::parse() {
     errorToken.reset();
+    auto failAt = [&](const Token& token) {
+        diag::printLocatedError(std::cerr, parseFileName,
+                                token.getSourceLine(), token.getSourceIndex(),
+                                "parse error");
+        dump_state();
+        return 1;
+    };
+    auto failUnlocated = [&]() {
+        diag::printUnlocatedError(std::cerr, parseFileName, "parse error");
+        dump_state();
+        return 1;
+    };
+
     while (!remSymbols.empty() && !remTokens.empty()) {
 
         // expression handling
@@ -545,12 +555,7 @@ int Parser::parse() {
             Node::Ptr exprNode = remSymbols.back();
 
             if (!peekSymbol(1)->getToken().has_value()) {
-                const Token& next = remTokens.back();
-                std::cerr << parseFileName << ":" << next.getSourceLine() + 1
-                          << ":" << next.getSourceIndex() + 1
-                          << ": error: parse error\n";
-                dump_state();
-                return 1;
+                return failAt(remTokens.back());
             }
             remSymbols.pop_back();
 
@@ -566,12 +571,7 @@ int Parser::parse() {
             }
 
             if (!res.has_value()) {
-                const Token& next = errorToken.has_value() ? *errorToken : peekExpr(0);
-                std::cerr << parseFileName << ":" << next.getSourceLine() + 1
-                          << ":" << next.getSourceIndex() + 1
-                          << ": error: parse error\n";
-                dump_state();
-                return 1;
+                return failAt(errorToken.has_value() ? *errorToken : peekExpr(0));
             }
 
             exprNode->addChild(res.value());
@@ -585,12 +585,7 @@ int Parser::parse() {
             if (!errorToken.has_value()) {
                 errorToken = remTokens.back();
             }
-            const Token& next = *errorToken;
-            std::cerr << parseFileName << ":" << next.getSourceLine() + 1
-                      << ":" << next.getSourceIndex() + 1
-                      << ": error: parse error\n";
-            dump_state();
-            return 1;
+            return failAt(*errorToken);
         }
 
         if (isVerbose) {
@@ -616,25 +611,13 @@ int Parser::parse() {
     if (remSymbols.empty() && remTokens.empty()) return 0;
 
     if (errorToken.has_value()) {
-        const Token& next = *errorToken;
-        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
-                  << ":" << next.getSourceIndex() + 1
-                  << ": error: parse error\n";
+        return failAt(*errorToken);
     } else if (!remTokens.empty()) {
-        const Token& next = remTokens.back();
-        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
-                  << ":" << next.getSourceIndex() + 1
-                  << ": error: parse error\n";
+        return failAt(remTokens.back());
     } else if (eofToken.has_value()) {
-        const Token& next = *eofToken;
-        std::cerr << parseFileName << ":" << next.getSourceLine() + 1
-                  << ":" << next.getSourceIndex() + 1
-                  << ": error: parse error\n";
-    } else {
-        std::cerr << parseFileName << ": error: parse error\n";
+        return failAt(*eofToken);
     }
-    dump_state();
-    return 1;
+    return failUnlocated();
 }
 
 // -------------------------
@@ -643,6 +626,12 @@ int Parser::parse() {
 std::optional<Node::Ptr> Parser::parseSymbol() {
     Node::Ptr symbol = remSymbols.back();
     Token next = peek(0);
+    auto matchTokenType = [&](const char* expectedType) -> std::optional<Node::Ptr> {
+        if (next.getTokenType() != expectedType) return std::nullopt;
+        symbol->setToken(next);
+        remTokens.pop_back();
+        return symbol;
+    };
 
     switch (symbol->getType()) {
         case expr:
@@ -662,36 +651,16 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
         }
 
         case stringliteral:
-            if (next.getTokenType() == "string-literal") {
-                symbol->setToken(next);
-                remTokens.pop_back();
-                return symbol;
-            }
-            return std::nullopt;
+            return matchTokenType("string-literal");
 
         case charconst:
-            if (next.getTokenType() == "character-constant") {
-                symbol->setToken(next);
-                remTokens.pop_back();
-                return symbol;
-            }
-            return std::nullopt;
+            return matchTokenType("character-constant");
 
         case decimalconst:
-            if (next.getTokenType() == "decimal-constant") {
-                symbol->setToken(next);
-                remTokens.pop_back();
-                return symbol;
-            }
-            return std::nullopt;
+            return matchTokenType("decimal-constant");
 
         case id:
-            if (next.getTokenType() == "identifier") {
-                symbol->setToken(next);
-                remTokens.pop_back();
-                return symbol;
-            }
-            return std::nullopt;
+            return matchTokenType("identifier");
 
         case start:
             symbol->addChild(transunit);

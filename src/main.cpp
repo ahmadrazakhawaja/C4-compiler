@@ -4,6 +4,7 @@
 #include <exception>
 #include <utility>
 #include "helper/Utils.h"
+#include "helper/Diagnostics.h"
 #include "parser/Parser.h"
 #include "ast/Ast.h"
 #include "semantic/Semantic.h"
@@ -14,14 +15,13 @@ static bool build_ast(const std::string& file, const std::string& fullPath, ast:
     try {
         sourceCode = Utils::readSourceCode(fullPath);
     } catch (const std::exception& ex) {
-        std::cerr << ex.what() << std::endl;
+        diag::printException(std::cerr, ex);
         return false;
     }
     auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
     if (sequence.second.has_value()) {
         const auto& err = *sequence.second;
-        std::cerr << file << ":" << err.line + 1 << ":" << err.column + 1
-                  << ": error: " << err.message << std::endl;
+        diag::printLocatedError(std::cerr, file, err.line, err.column, err.message);
         return false;
     }
 
