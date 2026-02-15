@@ -485,9 +485,6 @@ static void printStatement(const Statement& stmt, std::ostream& os, int level) {
 static void printDecl(const Decl& decl, std::ostream& os, int level) {
     if (decl.type.kind == TypeSpec::Kind::Struct && !decl.type.structType.fields.empty()) {
         indent(os, level);
-        if (decl.isExtern) {
-            os << "extern ";
-        }
         os << "struct";
         if (decl.type.structType.name.has_value()) {
             os << " " << *decl.type.structType.name;
@@ -508,9 +505,6 @@ static void printDecl(const Decl& decl, std::ostream& os, int level) {
     }
 
     indent(os, level);
-    if (decl.isExtern) {
-        os << "extern ";
-    }
     os << renderTypeInlineFull(decl.type);
     if (decl.declarator.has_value()) {
         os << " " << renderDeclarator(*decl.declarator).text;
@@ -731,13 +725,8 @@ static ParamList buildParamList(const Node::Ptr& node) {
 static Decl buildDeclFromDec(const Node::Ptr& node) {
     Decl decl;
     const auto& kids = node->getChildren();
-    size_t typeIndex = 0;
-    if (!kids.empty() && isTerminalValue(kids.at(0), "extern")) {
-        decl.isExtern = true;
-        typeIndex = 1;
-    }
-    decl.type = buildType(kids.at(typeIndex));
-    const auto& decTail = kids.at(typeIndex + 1);
+   decl.type = buildType(kids.at(0));
+    const auto& decTail = kids.at(1);
     if (decTail && decTail->getChildren().size() > 1) {
         decl.declarator = buildDeclarator(decTail->getChildren().at(0));
     }
@@ -841,16 +830,10 @@ static std::shared_ptr<Statement> buildStatement(const Node::Ptr& node) {
 static ExternalDecl buildExternalDecl(const Node::Ptr& node) {
     ExternalDecl ext;
     const auto& kids = node->getChildren();
-    size_t typeIndex = 0;
-    bool isExtern = false;
-    if (!kids.empty() && isTerminalValue(kids.at(0), "extern")) {
-        isExtern = true;
-        typeIndex = 1;
-    }
-    TypeSpec typeSpec = buildType(kids.at(typeIndex));
-    const auto& tail = kids.at(typeIndex + 1);
+    TypeSpec typeSpec = buildType(kids.at(0));
+    const auto& tail = kids.at(1);
     if (tail->getChildren().size() == 1) {
-        Decl decl{typeSpec, std::nullopt, isExtern};
+        Decl decl{typeSpec, std::nullopt};
         ext.node = decl;
         return ext;
     }
@@ -859,7 +842,7 @@ static ExternalDecl buildExternalDecl(const Node::Ptr& node) {
     const auto& tail2 = tail->getChildren().at(1);
     const auto& tail2Child = tail2->getChildren().at(0);
     if (tail2Child->getType() == decEnd) {
-        Decl declNode{typeSpec, decl, isExtern};
+        Decl declNode{typeSpec, decl};
         ext.node = declNode;
         return ext;
     }
