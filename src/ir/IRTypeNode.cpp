@@ -163,8 +163,13 @@ ast::ParamList buildParamListFromNode(const Node::Ptr& node) {
 ast::Decl buildDeclFromDecNode(const Node::Ptr& node) {
     ast::Decl decl;
     const auto& kids = node->getChildren();
-    decl.type = buildTypeSpecFromNode(kids.at(0));
-    const auto& decTail = kids.at(1);
+    size_t typeIndex = 0;
+    if (!kids.empty() && isTerminalValue(kids.at(0), "extern")) {
+        decl.isExtern = true;
+        typeIndex = 1;
+    }
+    decl.type = buildTypeSpecFromNode(kids.at(typeIndex));
+    const auto& decTail = kids.at(typeIndex + 1);
     if (decTail && decTail->getChildren().size() > 1) {
         decl.declarator = buildDeclaratorFromNode(decTail->getChildren().at(0));
     }
