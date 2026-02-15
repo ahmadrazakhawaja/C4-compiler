@@ -6,76 +6,31 @@
 
 #include "../helper/structs/TokenizeAttempt.h"
 
-namespace {
-
-static bool isOctalDigit(char c) {
-    return c >= '0' && c <= '7';
-}
-
-static bool isHexDigit(char c) {
-    return (c >= '0' && c <= '9') ||
-        (c >= 'a' && c <= 'f') ||
-        (c >= 'A' && c <= 'F');
-}
-
-static bool isSimpleEscapeChar(char c) {
-    return c == 'n' || c == 't' || c == 'r' || c == 'b' ||
-        c == 'f' || c == 'v' || c == 'a' ||
-        c == '\\' || c == '\'' || c == '\"' || c == '?';
-}
-
-static size_t escapeSequenceLength(const char* p) {
-    if (!p || *p == '\0') return 0;
-    if (isSimpleEscapeChar(*p)) return 1;
-
-    if (*p == 'x' || *p == 'X') {
-        size_t len = 1;
-        size_t digits = 0;
-        while (isHexDigit(p[len])) {
-            ++len;
-            ++digits;
-        }
-        return digits > 0 ? len : 0;
-    }
-
-    if (isOctalDigit(*p)) {
-        size_t len = 1;
-        while (len < 3 && isOctalDigit(p[len])) {
-            ++len;
-        }
-        return len;
-    }
-
-    return 0;
-}
-
-} // namespace
-
 TokenizeAttempt TokenizeHelper::tokenizeStringLiterals(const char* code) {
     if (!code || *code != '"') return TokenizeAttempt();
 
     const char* start = code;
     const char* ptr = code + 1;
+    bool escaped = false;
 
     while (*ptr) {
-        if (*ptr == '\\') {
-            size_t escLen = escapeSequenceLength(ptr + 1);
-            if (escLen == 0) {
+        if (escaped) {
+            char c = *ptr;
+            if (!(c == 'n' || c == 't' || c == 'r' || c == 'b' ||
+                c == 'f' || c == 'v' || c == 'a' ||
+                c == '\\' || c == '\'' || c == '\"' || c == '?')) {
                 TokenizeAttempt attempt;
                 attempt.setCharsLexed(ptr - start);
                 return attempt;
             }
-            ptr += escLen + 1;
-            continue;
-        }
-
-        if (*ptr == '\n') {
+            escaped = false;
+        } else if (*ptr == '\\') {
+            escaped = true;
+        } else if (*ptr == '\n') {
             TokenizeAttempt attempt;
             attempt.setCharsLexed(ptr - start);
             return attempt;
-        }
-
-        if (*ptr == '"') {
+        } else if (*ptr == '"') {
             std::string value(start, ptr - start + 1);
             Token token;
             token.setTokenType("string-literal");
@@ -222,44 +177,63 @@ TokenizeAttempt TokenizeHelper::tokenizeCharacterConstants(const char* code) {
         return TokenizeAttempt();
     }
 
+    std::string current;
+    bool escaped = false;
+
+    current += code[0];
+    int charsLexed = 1;
+
     size_t i = 1;
-    if (code[i] == '\0' || code[i] == '\n') {
-        TokenizeAttempt attempt;
-        attempt.setCharsLexed(static_cast<int>(i));
-        return attempt;
-    }
+    while (code[i] != '\0') {
+        char c = code[i];
 
-    if (code[i] == '\\') {
-        size_t escLen = escapeSequenceLength(code + i + 1);
-        if (escLen == 0) {
+        if (escaped) {
+            if (!(c == 'n' || c == 't' || c == 'r' || c == 'b' ||
+            c == 'f' || c == 'v' || c == 'a' ||
+            c == '\\' || c == '\'' || c == '\"' || c == '?')) {
+                // invalid escape sequence
+                break;
+            }
+            current += c;
+            escaped = false;
+        } else if (c == '\\') {
+            if(charsLexed != 1){
+                // escape must be at set position
+                break;
+            }
+            escaped = true;
+            current += c;
+        } else if (c == '\'') {
+            if(charsLexed != 2 && charsLexed != 3){
+                // closing quotes must be at set position
+                break;
+            }
+            current += c;
+            ++i;
+            ++charsLexed;
+
+            Token token;
+            token.setTokenType("character-constant");
+            token.setValue(current);
+
             TokenizeAttempt attempt;
-            attempt.setCharsLexed(static_cast<int>(i));
+            attempt.setToken(token);
+            attempt.setCharsLexed(charsLexed);
             return attempt;
+        } else {
+            if(charsLexed != 1 || c == '\n'){
+                // normal characters should be at fixed position
+                break;
+            }
+            current += c;
         }
-        i += escLen + 1;
-    } else {
-        if (code[i] == '\'') {
-            TokenizeAttempt attempt;
-            attempt.setCharsLexed(static_cast<int>(i));
-            return attempt;
-        }
+
         ++i;
+        ++charsLexed;
     }
-
-    if (code[i] != '\'') {
-        TokenizeAttempt attempt;
-        attempt.setCharsLexed(static_cast<int>(i));
-        return attempt;
-    }
-
-    std::string current(code, i + 1);
-    Token token;
-    token.setTokenType("character-constant");
-    token.setValue(current);
 
     TokenizeAttempt attempt;
-    attempt.setToken(token);
-    attempt.setCharsLexed(static_cast<int>(i + 1));
+    attempt.setCharsLexed(charsLexed);
     return attempt;
 }
 

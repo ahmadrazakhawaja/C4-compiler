@@ -725,7 +725,7 @@ static ParamList buildParamList(const Node::Ptr& node) {
 static Decl buildDeclFromDec(const Node::Ptr& node) {
     Decl decl;
     const auto& kids = node->getChildren();
-   decl.type = buildType(kids.at(0));
+    decl.type = buildType(kids.at(0));
     const auto& decTail = kids.at(1);
     if (decTail && decTail->getChildren().size() > 1) {
         decl.declarator = buildDeclarator(decTail->getChildren().at(0));

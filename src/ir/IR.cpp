@@ -19,7 +19,6 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -178,18 +177,7 @@ static void collectParamDecls(const ast::Declarator& decl, std::vector<const ast
     }
 }
 
-static bool isOctalDigit(char c) {
-    return c >= '0' && c <= '7';
-}
-
-static int hexDigitValue(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
-    return -1;
-}
-
-static int decodeSimpleEscape(char c) {
+static char decodeEscape(char c) {
     switch (c) {
         case 'n': return '\n';
         case 't': return '\t';
@@ -202,75 +190,31 @@ static int decodeSimpleEscape(char c) {
         case '\'': return '\'';
         case '"': return '"';
         case '?': return '?';
-        default: return -1;
+        default: return c;
     }
-}
-
-// Parses one C escape sequence from `text` at index `i` where text[i] == '\\'.
-// Returns the resulting byte and advances `i` to the last consumed index.
-static unsigned char parseEscapedByte(const std::string& text, size_t& i) {
-    if (i + 1 >= text.size()) return '\\';
-    char next = text[i + 1];
-
-    int simple = decodeSimpleEscape(next);
-    if (simple >= 0) {
-        i += 1;
-        return static_cast<unsigned char>(simple);
-    }
-
-    if (next == 'x' || next == 'X') {
-        size_t j = i + 2;
-        int value = 0;
-        bool any = false;
-        while (j < text.size()) {
-            int d = hexDigitValue(text[j]);
-            if (d < 0) break;
-            value = (value << 4) + d;
-            any = true;
-            ++j;
-        }
-        if (any) {
-            i = j - 1;
-            return static_cast<unsigned char>(value & 0xFF);
-        }
-        i += 1;
-        return static_cast<unsigned char>(next);
-    }
-
-    if (isOctalDigit(next)) {
-        size_t j = i + 1;
-        int value = 0;
-        int count = 0;
-        while (j < text.size() && count < 3 && isOctalDigit(text[j])) {
-            value = (value << 3) + (text[j] - '0');
-            ++j;
-            ++count;
-        }
-        i = j - 1;
-        return static_cast<unsigned char>(value & 0xFF);
-    }
-
-    i += 1;
-    return static_cast<unsigned char>(next);
 }
 
 static int parseCharLiteral(const std::string& text) {
-    if (text.size() < 3) return 0;
-    if (text[1] == '\\') {
-        size_t i = 1;
-        return static_cast<unsigned char>(parseEscapedByte(text, i));
+    if (text.size() < 2) return 0;
+    if (text.size() >= 4 && text[1] == '\\') {
+        return static_cast<unsigned char>(decodeEscape(text[2]));
     }
-    return static_cast<unsigned char>(text[1]);
+    if (text.size() >= 3) {
+        return static_cast<unsigned char>(text[1]);
+    }
+    return 0;
 }
 
 static std::string parseStringLiteral(const std::string& text) {
     std::string out;
     if (text.size() < 2) return out;
     for (size_t i = 1; i + 1 < text.size(); ++i) {
-        if (text[i] == '\\' && i + 1 < text.size() - 1) {
-            out.push_back(static_cast<char>(parseEscapedByte(text, i)));
+        char c = text[i];
+        if (c == '\\' && i + 1 < text.size() - 1) {
+            out.push_back(decodeEscape(text[i + 1]));
+            ++i;
         } else {
-            out.push_back(text[i]);
+            out.push_back(c);
         }
     }
     return out;
@@ -330,12 +274,6 @@ private:
             if (found != it->end()) return &found->second;
         }
         return nullptr;
-    }
-
-    SymbolValue* lookupGlobal(const std::string& name) {
-        auto it = scopes.front().find(name);
-        if (it == scopes.front().end()) return nullptr;
-        return &it->second;
     }
 
     bool declare(const std::string& name, const SymbolValue& sym) {
@@ -1066,31 +1004,7 @@ private:
 
         llvm::Type* objTy = llvmType(full);
         if (isGlobal) {
-            auto existing = scopes.front().find(name);
-            if (existing != scopes.front().end()) {
-                if (existing->second.isFunction || !typeEqual(existing->second.type, full)) {
-                    report("redeclaration of '" + name + "'");
-                    return false;
-                }
-                auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(existing->second.value);
-                if (!gv) {
-                    report("internal error: invalid symbol for global '" + name + "'");
-                    return false;
-                }
-                if (!decl.isExtern && gv->isDeclaration()) {
-                    gv->setInitializer(llvm::Constant::getNullValue(objTy));
-                    gv->setLinkage(llvm::GlobalValue::CommonLinkage);
-                }
-                existing->second.type = full;
-                return true;
-            }
-
-            llvm::Constant* init = nullptr;
-            llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
-            if (!decl.isExtern) {
-                init = llvm::Constant::getNullValue(objTy);
-                linkage = llvm::GlobalValue::CommonLinkage;
-            }
+            llvm::Constant* init = llvm::Constant::getNullValue(objTy);
             auto* gv = new llvm::GlobalVariable(*module, objTy, false,
                                                 linkage,
                                                 init, name);
@@ -1098,34 +1012,7 @@ private:
             sym.type = full;
             sym.value = gv;
             sym.isFunction = false;
-            scopes.front().emplace(name, sym);
-            return true;
-        }
-
-        if (decl.isExtern) {
-            auto localIt = scopes.back().find(name);
-            if (localIt != scopes.back().end()) {
-                report("redeclaration of '" + name + "'");
-                return false;
-            }
-            SymbolValue* global = lookupGlobal(name);
-            if (global) {
-                if (global->isFunction || !typeEqual(global->type, full)) {
-                    report("redeclaration of '" + name + "'");
-                    return false;
-                }
-                return true;
-            }
-
-            auto* gv = new llvm::GlobalVariable(*module, objTy, false,
-                                                llvm::GlobalValue::ExternalLinkage,
-                                                nullptr, name);
-            SymbolValue globalSym;
-            globalSym.type = full;
-            globalSym.value = gv;
-            globalSym.isFunction = false;
-            scopes.front().emplace(name, globalSym);
-            return true;
+            return declare(name, sym);
         }
 
         llvm::IRBuilder<> allocaBuilder(&currentFunction->getEntryBlock(),
