@@ -993,20 +993,12 @@ private:
             return true;
         }
 
-        if (!decl.isExtern && !isCompleteObjectType(full)) {
-            if (full.kind == TypeDesc::Kind::Struct) {
-                report("use of incomplete struct '" + full.structName + "'");
-            } else {
-                report("object has incomplete type");
-            }
-            return false;
-        }
 
         llvm::Type* objTy = llvmType(full);
         if (isGlobal) {
             llvm::Constant* init = llvm::Constant::getNullValue(objTy);
             auto* gv = new llvm::GlobalVariable(*module, objTy, false,
-                                                linkage,
+                                                llvm::GlobalValue::ExternalLinkage,
                                                 init, name);
             SymbolValue sym;
             sym.type = full;
