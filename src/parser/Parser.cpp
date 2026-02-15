@@ -375,16 +375,39 @@ std::optional<Node::Ptr> Parser::evilShuntingYard(std::string limit, std::string
 
                     int open = 1;
                     while (open > 0) {
-                        remTokensExpressionIndex++;
                         Token t = peekExpr(0);
                         if (t.getValue() == "EOF") {
                             noteError(t);
                             return std::nullopt;
                         }
+
+                        if (t.getValue() == "(") {
+                            open++;
+                            // nested parentheses belong to the type name
+                            typeNode->addChild(Node::make(terminal, t));
+                            remRevExprSymbols.push_back(Node::make(terminal, t));
+                            remTokensExpressionIndex++;
+                            continue;
+                        }
+                        if (t.getValue() == ")") {
+                            open--;
+                            remTokensExpressionIndex++;
+                            if (open == 0) {
+                                break; // this ')' closes sizeof(...)
+                            }
+                            // nested ')' belongs to the type name
+                            typeNode->addChild(Node::make(terminal, t));
+                            remRevExprSymbols.push_back(Node::make(terminal, t));
+                            continue;
+                        }
+
+                        // all inner tokens are part of the type-name.
+                        typeNode->addChild(Node::make(terminal, t));
+                        remRevExprSymbols.push_back(Node::make(terminal, t));
+                        remTokensExpressionIndex++;
                     }
 
-                    // consume ")"
-                    remTokensExpressionIndex++;
+                    // closing ')' was consumed by the loop above
                     remRevExprSymbols.push_back(Node::makeTerminal(")"));
                     continue;
                 }
@@ -655,6 +678,9 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case extdec:
+            if (next.getValue() == "extern") {
+                symbol->addChild("extern");
+            }
             symbol->addChild(type);
             symbol->addChild(extdec_);
             return symbol;
@@ -746,6 +772,9 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case dec:
+            if (next.getValue() == "extern") {
+                symbol->addChild("extern");
+            }
             symbol->addChild(type);
             symbol->addChild(dec_);
             return symbol;
@@ -936,7 +965,7 @@ std::optional<Node::Ptr> Parser::parseSymbol() {
             return symbol;
 
         case blockitem:
-            if (next.getValue() == "void" || next.getValue() == "char" ||
+            if (next.getValue() == "extern" || next.getValue() == "void" || next.getValue() == "char" ||
                 next.getValue() == "int"  || next.getValue() == "struct") {
                 symbol->addChild(dec);
                 return symbol;

@@ -216,6 +216,21 @@ private:
         return true;
     }
 
+    bool declareObjectGlobal(const std::string& name, const SymbolInfo& info) {
+        auto& scope = scopes.front();
+        auto it = scope.find(name);
+        if (it != scope.end()) {
+            if (!it->second.isFunction && typeEqual(it->second.type, info.type)) {
+                it->second.defined = it->second.defined || info.defined;
+                return true;
+            }
+            report(info.loc, "redeclaration of '" + name + "'");
+            return false;
+        }
+        scope.emplace(name, info);
+        return true;
+    }
+
     Type typeFromTypeSpec(const ast::TypeSpec& spec) {
         if (spec.kind == ast::TypeSpec::Kind::Builtin) {
             if (spec.builtin == "int") return makeInt();
@@ -241,6 +256,10 @@ private:
             info.loc = spec.loc;
 
             for (const auto& field : spec.structType.fields) {
+                if (field.isExtern) {
+                    report(field.type.loc, "struct field cannot be declared extern");
+                    continue;
+                }
                 const ast::Declarator* decl = field.declarator ? &(*field.declarator) : nullptr;
                 if (!decl) {
                     report(spec.loc, "struct field missing declarator");
@@ -393,10 +412,24 @@ private:
         SymbolInfo info;
         info.type = full;
         info.isFunction = isFunction(full);
+        const bool isGlobal = scopes.size() == 1;
         info.defined = false;
         info.loc = nameLoc;
         if (info.isFunction) {
             declareFunctionGlobal(name, info);
+        } else if (isGlobal) {
+            // File-scope declarations without 'extern' are tentative definitions.
+            info.defined = !decl.isExtern;
+            declareObjectGlobal(name, info);
+        } else if (decl.isExtern) {
+            // Block-scope extern declaration introduces/uses a global object.
+            auto localIt = scopes.back().find(name);
+            if (localIt != scopes.back().end()) {
+                report(nameLoc, "redeclaration of '" + name + "'");
+                return;
+            }
+            info.defined = false;
+            declareObjectGlobal(name, info);
         } else {
             declare(name, info);
         }
