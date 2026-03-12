@@ -6,6 +6,9 @@
 #include "parser/Parser.h"
 #include "ast/Ast.h"
 #include "semantic/Semantic.h"
+#include "llvm/Emitter.h"
+#include <llvm/Support/raw_ostream.h>
+
 
 int main(int argc, char** argv) {
     if (argc >= 3 && std::string(argv[1]) == "--tokenize") {
@@ -65,6 +68,52 @@ int main(int argc, char** argv) {
         auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
         if (!semantic::analyze(astTree, std::cerr, file)) return 1;
         ast::printAst(astTree, std::cout);
+        return 0;
+    }
+
+    if (argc >= 3 && std::string(argv[1]) == "--compile") {
+        std::string fullPath = argv[2];
+        std::string file = fullPath;
+
+        std::string sourceCode;
+        try {
+            sourceCode = Utils::readSourceCode(fullPath);
+        } catch (const std::exception& ex) {
+            std::cerr << ex.what() << std::endl;
+            return 1;
+        }
+        sourceCode += '\0';
+        auto sequence = Tokenizer::tokenizeSeq(sourceCode, false);
+
+        if (sequence.second.has_value()) {
+            const auto& err = *sequence.second;
+            std::cerr << file << ":" << err.line + 1 << ":" << err.column + 1
+                      << ": error: " << err.message << std::endl;
+            return 1;
+        }
+
+        Parser parser(sequence.first, false);
+        if (parser.parse() != 0) return 1;
+
+        auto astTree = ast::buildFromParseTree(parser.getParseTreeRoot());
+        if (!semantic::analyze(astTree, std::cerr, file)) return 1;
+        
+        Emitter emitter("c4-module");
+        emitter.emitFromParseTree(astTree);
+        emitter.module->print(llvm::outs(), nullptr);
+
+        std::string input = argv[2];
+        std::string output = input.substr(input.find_last_of("/\\") + 1);
+        output = output.substr(0, output.find_last_of('.')) + ".ll";
+
+        std::error_code ec;
+        llvm::raw_fd_ostream out(output, ec);
+        if (ec) {
+            std::cerr << "error opening " << output << "\n";
+            return 1;
+        }
+
+        emitter.module->print(out, nullptr);
         return 0;
     }
 
