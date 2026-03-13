@@ -292,20 +292,12 @@ llvm::Value* Emitter::emitExprNode(const Node::Ptr& node) {
             llvm::outs() << "[ExprNode]     Pointer type: " << *ptrType << "\n";
             
             llvm::StructType* structTy = nullptr;
-            if (auto* pt = llvm::dyn_cast<llvm::PointerType>(ptrType)) {
-                structTy = llvm::dyn_cast<llvm::StructType>(pt->getPointerElementType());
+            if (auto *ptrTy = llvm::dyn_cast<llvm::PointerType>(ptrType)) {
+                // In LLVM 15+, pointers are opaque
+                // Get the struct type from the resolved type
+                auto* baseType = resolveType(kids.at(0));
+                structTy = llvm::dyn_cast<llvm::StructType>(baseType);
             }
-            
-            if (!structTy) {
-                llvm::outs() << "[ExprNode]     ERROR: Not a pointer to struct\n";
-                return nullptr;
-            }
-            
-            std::string fieldName = kids.at(1)->getToken()->getValue();
-            llvm::outs() << "[ExprNode]     Field: '" << fieldName << "'\n";
-            int fieldIndex = getFieldIndex(structTy, fieldName);
-            
-            return emitStructAccess(ptrValue, structTy, fieldIndex);
         }
 
         case arrayaccess: {
@@ -336,7 +328,7 @@ llvm::Value* Emitter::emitExprNode(const Node::Ptr& node) {
             llvm::outs() << "[ExprNode]     sizeof operator\n";
             llvm::Type* currentType = resolveType(kids.at(0));
             
-            llvm::DataLayout dataLayout(module.get());
+            llvm::DataLayout dataLayout = module->getDataLayout();
             uint64_t sizeInBytes = dataLayout.getTypeAllocSize(currentType);
             llvm::outs() << "[ExprNode]     Size: " << sizeInBytes << " bytes\n";
             
@@ -510,7 +502,7 @@ Emitter::DeclInfo Emitter::buildDeclarator(const ast::Declarator& decl, llvm::Ty
     }
 
     for (int i = 0; i < decl.pointerDepth; i++) {
-        currentType = llvm::PointerType::get(currentType, 0);
+        currentType = llvm::PointerType::getUnqual(ctx);
     }
 
     return {name, currentType};
